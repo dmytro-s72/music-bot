@@ -5,7 +5,7 @@ import logging
 import yt_dlp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, ReplyKeyboardRemove
 
 logging.basicConfig(level=logging.ERROR)
 
@@ -82,7 +82,10 @@ def get_pro_keyboard(user_id, page=0):
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer("Напиши название песни или исполнителя, и я найду музыку для тебя.")
+    await message.answer(
+        "Напиши название песни или исполнителя, и я найду музыку для тебя.", 
+        reply_markup=ReplyKeyboardRemove()
+    )
 
 @dp.message(F.text)
 async def handle_search(message: types.Message):
@@ -104,7 +107,7 @@ async def handle_search(message: types.Message):
         await message.answer(f"Результаты по запросу: {message.text}", reply_markup=get_pro_keyboard(message.from_user.id, 0))
     except Exception as e:
         logging.error(f"Возникла ошибка. {e}")
-        await status.edit_text("❌ Ошибка поиска (попробуйте позже или проверьте запрос).")
+        await status.edit_text("❌ Возникла ошибка при поиске трека.")
 
 @dp.callback_query(F.data.startswith("page_"))
 async def change_page(callback: types.CallbackQuery):
