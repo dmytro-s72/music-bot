@@ -12,7 +12,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFil
 logging.basicConfig(level=logging.INFO)
 
 # 2. Змінні (токен вже вписано)
-TOKEN = "..."
+TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
