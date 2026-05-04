@@ -24,6 +24,23 @@ def format_duration(seconds):
     mins, secs = int(seconds // 60), int(seconds % 60)
     return f"{mins}:{secs:02d}"
 
+def get_ydl_opts(file_name=None):
+    opts = {
+        'format': 'bestaudio/best',
+        'cookiefile': COOKIES_FILE,
+        'quiet': True,
+        'no_warnings': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', # Додаємо це
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+    }
+    if file_name:
+        opts['outtmpl'] = file_name.replace(".mp3", "")
+    return opts
+
 def clean_title(title):
     title = re.sub(r'\(.*?\)|\[.*?\]', '', title)
     junk = ['Official Video', 'Music Video', 'Audio', 'Lyrics', 'Full HD', 'concierto', 'live']
