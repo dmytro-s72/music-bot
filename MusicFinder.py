@@ -86,10 +86,13 @@ async def handle_search(message: types.Message):
     # duration > 60 — исключает "огрызки" и Shorts (меньше минуты)
     # duration < 600 — исключает длинные концерты (больше 10 минут)
     ydl_opts = {
-        'quiet': True, 
-        'noplaylist': True, 
-        'extract_flat': True, 
-        'match_filter': yt_dlp.utils.match_filter_func("duration > 60 & duration < 600")
+    'format': 'bestaudio/best',
+    'cookiefile': 'cookies.txt',  # Додайте цей рядок
+    'postprocessors': [{
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '192',
+    }],
     }
     
     try:
