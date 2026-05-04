@@ -4,14 +4,13 @@ import re
 import logging
 import yt_dlp
 from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 
-# Навчання: os.getenv тягне дані з вкладки Variables у Railway
 TOKEN = os.getenv("BOT_TOKEN")
-
-# Ведення документації: на Linux (Railway) шлях до ffmpeg не потрібен, 
-# якщо він встановлений у системі. Просто пишемо назву команди.
 FFMPEG_EXE_PATH = "ffmpeg" 
+# Ведення документації: путь к кукам в одной переменной для удобства
+COOKIES_FILE = "cookies.txt"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -20,13 +19,11 @@ search_cache = {}
 ITEMS_PER_PAGE = 8 
 
 def format_duration(seconds):
-    """Навчання: Преобразуем секунды в формат 3:45, исправляя ошибку float."""
     if not seconds: return "0:00"
     mins, secs = int(seconds // 60), int(seconds % 60)
     return f"{mins}:{secs:02d}"
 
 def clean_title(title):
-    """Ведення документації: Очистка названия от лишнего мусора."""
     title = re.sub(r'\(.*?\)|\[.*?\]', '', title)
     junk = ['Official Video', 'Music Video', 'Audio', 'Lyrics', 'Full HD', 'concierto', 'live']
     for word in junk:
@@ -34,29 +31,34 @@ def clean_title(title):
     title = title.replace('||', '').replace('•', '').strip()
     return re.sub(r'\s+', ' ', title)
 
-def download_audio_task(url, title):
-    """Навчання: Загрузка через yt_dlp с конвертацией в MP3."""
-    file_name = re.sub(r'[\\/*?:"<>|]', "", title) + ".mp3"
-    ydl_opts = {
+# --- Навчання: Единая функция настроек для поиска и скачивания ---
+def get_ydl_opts(file_name=None):
+    opts = {
         'format': 'bestaudio/best',
-        'outtmpl': file_name.replace(".mp3", ""),
-        'ffmpeg_location': FFMPEG_EXE_PATH,
+        'cookiefile': COOKIES_FILE,
+        'quiet': True,
+        'no_warnings': True,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'quiet': True,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    if file_name:
+        opts['outtmpl'] = file_name.replace(".mp3", "")
+        opts['ffmpeg_location'] = FFMPEG_EXE_PATH
+    return opts
+
+def download_audio_task(url, title):
+    file_name = re.sub(r'[\\/*?:"<>|]', "", title) + ".mp3"
+    opts = get_ydl_opts(file_name)
+    with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([url])
     return file_name
 
 def get_pro_keyboard(user_id, page=0):
-    """Опис рішення: Создание кнопок в формате 'Время | Название'."""
     data = search_cache.get(user_id, {})
     results = data.get('results', [])
-    
     start = page * ITEMS_PER_PAGE
     end = start + ITEMS_PER_PAGE
     current_items = results[start:end]
@@ -77,27 +79,19 @@ def get_pro_keyboard(user_id, page=0):
     buttons.append(nav)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+# --- Фикс бага сестры: Обработка команды /start ---
+@dp.message(CommandStart())
+async def cmd_start(message: types.Message):
+    await message.answer("👋 Привет! Просто напиши название песни или исполнителя, и я найду музыку для тебя.")
+
 @dp.message(F.text)
 async def handle_search(message: types.Message):
-    """Поиск треков на YouTube с фильтром по времени (от 1 до 10 минут)."""
     status = await message.answer("🔎 Ищу...")
-    
-    # Ведення документації:
-    # duration > 60 — исключает "огрызки" и Shorts (меньше минуты)
-    # duration < 600 — исключает длинные концерты (больше 10 минут)
-    ydl_opts = {
-    'format': 'bestaudio/best',
-    'cookiefile': 'cookies.txt',  # Додайте цей рядок
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
-    }],
-    }
+    opts = get_ydl_opts()
     
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Навчання: Добавляем слово "music" к запросу, чтобы улучшить выдачу популярных треков
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            # Навчання: Используем ytsearch для поиска без мгновенного скачивания
             search_query = f"ytsearch40:{message.text} music"
             info = ydl.extract_info(search_query, download=False)
             results = info.get('entries', [])
@@ -110,11 +104,10 @@ async def handle_search(message: types.Message):
         await status.delete()
         await message.answer(f"Результаты по запросу: {message.text}", reply_markup=get_pro_keyboard(message.from_user.id, 0))
     except Exception as e:
-        await status.edit_text(f"Ошибка поиска: {e}")
+        await status.edit_text(f"Ошибка поиска: {e}\n\n(Проверьте файл cookies.txt на GitHub)")
 
 @dp.callback_query(F.data.startswith("page_"))
 async def change_page(callback: types.CallbackQuery):
-    """Листание страниц поиска."""
     page = int(callback.data.split("_")[1])
     if callback.from_user.id in search_cache:
         await callback.message.edit_reply_markup(reply_markup=get_pro_keyboard(callback.from_user.id, page))
@@ -122,7 +115,6 @@ async def change_page(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("dl_"))
 async def process_download(callback: types.CallbackQuery):
-    """Обработка выбора трека и визуализация загрузки."""
     user_id = callback.from_user.id
     idx = int(callback.data.split("_")[1])
     
@@ -134,7 +126,6 @@ async def process_download(callback: types.CallbackQuery):
     title = clean_title(track['title'])
     url = track.get('url') or track.get('webpage_url')
 
-    # Визуальный эффект ожидания
     await callback.message.edit_text(f"⌛️")
 
     try:
@@ -143,8 +134,6 @@ async def process_download(callback: types.CallbackQuery):
         
         audio = FSInputFile(file_path)
         await callback.message.answer_audio(audio=audio, title=title)
-        
-        # Удаляем сообщение с песочными часами после отправки
         await callback.message.delete()
         
         if os.path.exists(file_path):
