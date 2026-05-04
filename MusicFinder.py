@@ -7,9 +7,10 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 
+logging.basicConfig(level=logging.ERROR)
+
 TOKEN = os.getenv("BOT_TOKEN")
 FFMPEG_EXE_PATH = "ffmpeg" 
-# Ведення документації: путь к кукам в одной переменной для удобства
 COOKIES_FILE = "cookies.txt"
 
 bot = Bot(token=TOKEN)
@@ -31,7 +32,6 @@ def clean_title(title):
     title = title.replace('||', '').replace('•', '').strip()
     return re.sub(r'\s+', ' ', title)
 
-# --- Навчання: Единая функция настроек для поиска и скачивания ---
 def get_ydl_opts(file_name=None):
     opts = {
         'format': 'bestaudio/best',
@@ -59,6 +59,7 @@ def download_audio_task(url, title):
 def get_pro_keyboard(user_id, page=0):
     data = search_cache.get(user_id, {})
     results = data.get('results', [])
+    
     start = page * ITEMS_PER_PAGE
     end = start + ITEMS_PER_PAGE
     current_items = results[start:end]
@@ -79,10 +80,9 @@ def get_pro_keyboard(user_id, page=0):
     buttons.append(nav)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# --- Фикс бага сестры: Обработка команды /start ---
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer("👋 Привет! Просто напиши название песни или исполнителя, и я найду музыку для тебя.")
+    await message.answer("Напиши название песни или исполнителя, и я найду музыку для тебя.")
 
 @dp.message(F.text)
 async def handle_search(message: types.Message):
@@ -91,7 +91,6 @@ async def handle_search(message: types.Message):
     
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            # Навчання: Используем ytsearch для поиска без мгновенного скачивания
             search_query = f"ytsearch40:{message.text} music"
             info = ydl.extract_info(search_query, download=False)
             results = info.get('entries', [])
@@ -104,7 +103,8 @@ async def handle_search(message: types.Message):
         await status.delete()
         await message.answer(f"Результаты по запросу: {message.text}", reply_markup=get_pro_keyboard(message.from_user.id, 0))
     except Exception as e:
-        await status.edit_text(f"Ошибка поиска: {e}\n\n(Проверьте файл cookies.txt на GitHub)")
+        logging.error(f"Возникла ошибка. {e}")
+        await status.edit_text("❌ Ошибка поиска (попробуйте позже или проверьте запрос).")
 
 @dp.callback_query(F.data.startswith("page_"))
 async def change_page(callback: types.CallbackQuery):
@@ -126,7 +126,7 @@ async def process_download(callback: types.CallbackQuery):
     title = clean_title(track['title'])
     url = track.get('url') or track.get('webpage_url')
 
-    await callback.message.edit_text(f"⌛️")
+    await callback.message.edit_text("⌛️")
 
     try:
         loop = asyncio.get_event_loop()
@@ -139,10 +139,10 @@ async def process_download(callback: types.CallbackQuery):
         if os.path.exists(file_path):
             os.remove(file_path)
     except Exception as e:
-        await callback.message.edit_text(f"❌ Ошибка загрузки: {e}")
+        logging.error(f"Возникла ошибка. {e}")
+        await callback.message.edit_text("❌ Возникла ошибка при загрузки трека.")
 
 async def main():
-    print("Бот запущен...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
