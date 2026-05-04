@@ -9,9 +9,9 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFil
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = "8737862180:AAFSCe-2QJxhWQlzRwa_7YQ30ee4w9EyC1c"
+TOKEN = os.getenv("BOT_TOKEN")
 # Укажи правильный путь к ffmpeg.exe
-FFMPEG_EXE_PATH = r"C:\Users\User\Documents\TelegramBot\ffmpeg-8.1-essentials_build\bin\ffmpeg.exe"
+FFMPEG_EXE_PATH = "ffmpeg"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
