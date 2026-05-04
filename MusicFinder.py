@@ -31,13 +31,25 @@ def clean_title(title):
     title = title.replace('||', '').replace('•', '').strip()
     return re.sub(r'\s+', ' ', title)
 
-def get_ydl_opts(file_name=None):
-    opts = {
+# ОПЦІЇ ДЛЯ ПОШУКУ (без кукі, щоб не блокувало відразу)
+def get_search_opts():
+    return {
         'format': 'bestaudio/best',
-        'cookiefile': COOKIES_FILE,
-        'nocheckcertificate': True,
         'quiet': True,
         'no_warnings': True,
+        'nocheckcertificate': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    }
+
+# ОПЦІЇ ДЛЯ ЗАВАНТАЖЕННЯ (з кукі)
+def get_download_opts(file_name):
+    return {
+        'format': 'bestaudio/best',
+        'cookiefile': COOKIES_FILE,
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'outtmpl': file_name.replace(".mp3", ""),
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -45,14 +57,11 @@ def get_ydl_opts(file_name=None):
             'preferredquality': '192',
         }],
     }
-    if file_name:
-        opts['outtmpl'] = file_name.replace(".mp3", "")
-    return opts
 
 def download_audio_task(url, title):
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
     file_name = f"{safe_title}.mp3"
-    opts = get_ydl_opts(file_name)
+    opts = get_download_opts(file_name)
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([url])
     return file_name
@@ -60,7 +69,6 @@ def download_audio_task(url, title):
 def get_pro_keyboard(user_id, page=0):
     data = search_cache.get(user_id, {})
     results = data.get('results', [])
-    
     start = page * ITEMS_PER_PAGE
     end = start + ITEMS_PER_PAGE
     current_items = results[start:end]
@@ -83,31 +91,27 @@ def get_pro_keyboard(user_id, page=0):
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer(
-        "Напиши название песни или исполнителя, и я найду музыку для тебя.", 
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await message.answer("Напиши название песни, и я найду музыку для тебя.", reply_markup=ReplyKeyboardRemove())
 
 @dp.message(F.text)
 async def handle_search(message: types.Message):
     status = await message.answer("🔎 Ищу...")
-    opts = get_ydl_opts()
-    
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        # Пошук виконуємо без кукі
+        with yt_dlp.YoutubeDL(get_search_opts()) as ydl:
             search_query = f"ytsearch40:{message.text} music"
             info = ydl.extract_info(search_query, download=False)
             results = info.get('entries', [])
             
         if not results:
-            await status.edit_text("❌ Ничего не найдено (попробуйте другой запрос).")
+            await status.edit_text("❌ Ничего не найдено.")
             return
 
         search_cache[message.from_user.id] = {'results': results, 'page': 0}
         await status.delete()
         await message.answer(f"Результаты по запросу: {message.text}", reply_markup=get_pro_keyboard(message.from_user.id, 0))
     except Exception as e:
-        logging.error(f"Возникла ошибка. {e}")
+        logging.error(f"Ошибка поиска: {e}")
         await status.edit_text("❌ Возникла ошибка при поиске трека.")
 
 @dp.callback_query(F.data.startswith("page_"))
@@ -123,14 +127,14 @@ async def process_download(callback: types.CallbackQuery):
     idx = int(callback.data.split("_")[1])
     
     if user_id not in search_cache:
-        await callback.answer("Результаты устарели, попробуйте еще раз.")
+        await callback.answer("Результаты устарели.")
         return
 
     track = search_cache[user_id]['results'][idx]
     title = clean_title(track['title'])
-    url = track.get('url') or track.get('webpage_url')
+    url = track.get('webpage_url') or track.get('url')
 
-    await callback.message.edit_text("⌛️")
+    msg = await callback.message.answer("⌛️ Загружаю...")
 
     try:
         loop = asyncio.get_event_loop()
@@ -138,13 +142,13 @@ async def process_download(callback: types.CallbackQuery):
         
         audio = FSInputFile(file_path)
         await callback.message.answer_audio(audio=audio, title=title)
-        await callback.message.delete()
+        await msg.delete()
         
         if os.path.exists(file_path):
             os.remove(file_path)
     except Exception as e:
-        logging.error(f"Возникла ошибка. {e}")
-        await callback.message.edit_text("❌ Возникла ошибка при загрузки трека.")
+        logging.error(f"Ошибка загрузки: {e}")
+        await msg.edit_text("❌ Ошибка. Возможно, видео защищено або ограничено YouTube.")
 
 async def main():
     await dp.start_polling(bot)
