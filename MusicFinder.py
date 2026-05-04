@@ -1,17 +1,17 @@
-import asyncio
 import os
+import asyncio
 import re
 import logging
 import yt_dlp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-
+# Навчання: os.getenv тягне дані з вкладки Variables у Railway
 TOKEN = os.getenv("BOT_TOKEN")
-# Укажи правильный путь к ffmpeg.exe
-FFMPEG_EXE_PATH = "ffmpeg"
+
+# Ведення документації: на Linux (Railway) шлях до ffmpeg не потрібен, 
+# якщо він встановлений у системі. Просто пишемо назву команди.
+FFMPEG_EXE_PATH = "ffmpeg" 
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
