@@ -1,8 +1,7 @@
 import os
 
-# Твої куки, скопійовані з логів. 
-# Скрипт сам перетворить пробіли на потрібні табуляції.
-RAW_COOKIES = """
+# Твої куки. Навіть якщо тут пробіли, скрипт це справить.
+RAW_DATA = """
 .youtube.com FALSE / TRUE 1810919112.19605 __Secure-1PAPISID lFlk-pCBHHSgqVR0/Al2ptOFjuHt2NEnr_
 .youtube.com FALSE / TRUE 1809501688.274655 __Secure-1PSIDTS sidts-CjQBhkeRd2OZFf84DZiVTvdcXs0Nq1Zil2LTMudfMZbXxAnENpfxN_PSk204LEvEWN9Aqqu0EAA
 .youtube.com FALSE / TRUE 1810919112.196821 __Secure-3PSID g.a0008wiMDGUfaXN9c6LDAP94GgR_16CBZb3TjsBbiKZ8KHpcMMaRVSi7q5VRp3bZG-WaZFm2BQACgYKAWsSARASFQHGX2MiCUvGBXDIvEitIJBdFh7hYRoVAUF8yKrbJYDN5AoObxu0neOCPyfr0076
@@ -15,29 +14,20 @@ RAW_COOKIES = """
 .youtube.com FALSE / TRUE 1793515711.535062 VISITOR_INFO1_LIVE P8f2iYwVWI0
 """
 
-def save_fixed_cookies():
-    with open('cookies.txt', 'w', encoding='utf-8') as f:
-        # Додаємо стандартний заголовок Netscape
-        f.write("# Netscape HTTP Cookie File\n")
-        f.write("# http://curl.haxx.se/rfc/cookie_spec.html\n\n")
+def generate_valid_cookies():
+    file_path = 'cookies.txt'
+    with open(file_path, 'w', encoding='utf-8') as f:
+        # Заголовок формату Netscape
+        f.write("# Netscape HTTP Cookie File\n\n")
         
-        for line in RAW_COOKIES.strip().split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-            
-            # Розбиваємо рядок по пробілах
-            parts = line.split()
-            
-            # Якщо частин >= 7, з'єднуємо перші 6 табуляцією, а залишок (значення) - як є
-            if len(parts) >= 7:
-                # domain, flag, path, secure, expiration, name, value
-                new_line = "\t".join(parts[:6]) + "\t" + " ".join(parts[6:])
-                f.write(new_line + "\n")
-            elif len(parts) == 6:
-                # На випадок, якщо значення порожнє
-                f.write("\t".join(parts) + "\t\n")
+        for line in RAW_DATA.strip().split('\n'):
+            # Розбиваємо рядок по будь-яким пробілам
+            columns = line.split()
+            if len(columns) >= 7:
+                # З'єднуємо перші 6 частин табуляцією, а останню (значення) додаємо в кінці
+                fixed_line = "\t".join(columns[:6]) + "\t" + " ".join(columns[6:])
+                f.write(fixed_line + "\n")
 
 if __name__ == "__main__":
-    save_fixed_cookies()
-    print("✅ Файл cookies.txt успішно згенеровано з правильними табуляціями!")
+    generate_valid_cookies()
+    print("✅ cookies.txt створено з правильними табуляціями!")
