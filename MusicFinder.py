@@ -88,36 +88,37 @@ async def download_song(video_url, title):
     cookie_file_path = "temp_cookies.txt"
 
     def ytdl_download():
-        if len(cookies_content) > 10:
-            with open(cookie_file_path, "w", encoding="utf-8") as f:
-                f.write(cookies_content)
-        
-        opts = {
-            # 'bestaudio/best' дозволяє вибрати будь-який доступний звук, якщо m4a недоступний
-            'format': 'bestaudio/best',
-            'outtmpl': temp_filename,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192'
-            }],
-            'quiet': False,
-            'nocheckcertificate': True,
-            'cookiefile': cookie_file_path if len(cookies_content) > 10 else None,
-            'cachedir': False,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'extractor_args': {
-                'youtube': {
-                    # Додаємо 'web' клієнт для надійності
-                    'player_client': ['android', 'web', 'tv_embedded'],
-                }
-            },
-        }
-        
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([video_url])
-        
-        return f"{temp_filename}.mp3"
+    # Записуємо кукі у файл
+    if len(cookies_content) > 10:
+        with open(cookie_file_path, "w", encoding="utf-8") as f:
+            f.write(cookies_content)
+    
+    opts = {
+        # 'ba' означає best audio. Вибираємо найкращий доступний звук
+        'format': 'ba/b', 
+        'outtmpl': temp_filename,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192'
+        }],
+        'quiet': False,
+        'nocheckcertificate': True,
+        'cookiefile': cookie_file_path if len(cookies_content) > 10 else None,
+        'cachedir': False,
+        # Важливо: використовуємо клієнт ios, він зараз працює найкраще
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['ios'],
+            }
+        },
+    }
+    
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        # Спробуємо завантажити. Якщо ios не спрацює, yt-dlp спробує інші методи.
+        ydl.download([video_url])
+    
+    return f"{temp_filename}.mp3"
 
     try:
         loop = asyncio.get_event_loop()
