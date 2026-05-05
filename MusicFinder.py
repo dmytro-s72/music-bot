@@ -3,6 +3,7 @@ import asyncio
 import re
 import logging
 import yt_dlp
+import json
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
@@ -20,7 +21,45 @@ search_cache = {}
 last_requests = {} 
 ITEMS_PER_PAGE = 8
 
-# 🔍 ЕДИНЫЕ НАСТРОЙКИ (Для поиска и загрузки)
+def convert_json_to_netscape():
+    json_path = 'cookies.json'
+    txt_path = 'cookies.txt'
+    
+    if not os.path.exists(json_path):
+        logging.error("❌ Файл cookies.json не знайдено для конвертації!")
+        return
+
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            cookies = json.load(f)
+        
+        with open(txt_path, 'w', encoding='utf-8') as f:
+            # Записуємо обов'язковий заголовок Netscape
+            f.write("# Netscape HTTP Cookie File\n")
+            f.write("# http://curl.haxx.se/rfc/cookie_spec.html\n")
+            f.write("# This is a generated file! Do not edit.\n\n")
+            
+            for c in cookies:
+                # Визначаємо значення для формату Netscape
+                domain = c.get('domain', '')
+                # Прапор домену: TRUE якщо починається з крапки
+                flag = "TRUE" if domain.startswith('.') else "FALSE"
+                path = c.get('path', '/')
+                secure = "TRUE" if c.get('secure') else "FALSE"
+                # Час життя (expiry)
+                expiry = int(c.get('expirationDate', 0))
+                name = c.get('name', '')
+                value = c.get('value', '')
+                
+                # Записуємо рядок, розділений табуляцією \t
+                f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n")
+        
+        logging.info("✅ cookies.txt успішно згенеровано з JSON!")
+    except Exception as e:
+        logging.error(f"❌ Помилка конвертації куків: {e}")
+
+# Викликаємо конвертацію перед запуском бота
+convert_json_to_netscape()
 # 🔍 ЕДИНЫЕ НАСТРОЙКИ (Для поиска и загрузки)
 def get_ytdl_opts(for_download=False, out_name=None):
     # ЗМІНЕНО: тепер вказуємо шлях до JSON файлу
