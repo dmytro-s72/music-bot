@@ -2,18 +2,20 @@ import os
 import asyncio
 import re
 import logging
-import spotdl
-from spotdl import Spotdl
-from spotdl.types.song import Song
+import yt_dlp
+import html
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from googleapiclient.discovery import build
 
+# 1. Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
+# 2. Змінні конфігурації
+# Отримуємо токени безпечно через змінні оточення
 TOKEN = os.getenv("BOT_TOKEN")
-SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
-SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
+YT_API_KEY = os.getenv("YT_API_KEY")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -21,57 +23,126 @@ dp = Dispatcher()
 search_cache = {}
 ITEMS_PER_PAGE = 8
 
-def get_spotdl_client():
-    return Spotdl(
-        client_id=SPOTIFY_CLIENT_ID,
-        client_secret=SPOTIFY_CLIENT_SECRET,
-        downloader_settings={
-            "output": "/tmp",
-            "format": "mp3",
-            "bitrate": "192k",
-            "print_errors": True,
-        }
-    )
+def clean_display_name(text):
+    """Очищає назву від HTML-символів та технічного сміття"""
+    text = html.unescape(text)
+    text = re.sub(r'[\(\[][^\\\)\(\]]*[\)\]]', '', text)
+    garbage = ["official", "video", "audio", "lyrics", "remastered", "music", "премьера", "новинка"]
+    for word in garbage:
+        text = re.compile(re.escape(word), re.IGNORECASE).sub('', text)
+    return re.sub(r'\s+', ' ', text).strip().strip('-').strip()
 
-def search_songs(query):
+# 3. Функція пошуку через YouTube Data API v3
+def search_youtube_api(query):
+    """Покращений пошук для знаходження конкретних треків"""
     try:
-        client = get_spotdl_client()
-        songs = client.search([query])
+        youtube = build('youtube', 'v3', developerKey=YT_API_KEY)
+        full_query = f"{query} full track audio"
+        
+        request = youtube.search().list(
+            q=full_query,
+            part='snippet',
+            type='video',
+            videoCategoryId='10', # Музика
+            videoDuration='medium',
+            maxResults=10
+        )
+        response = request.execute()
+        
         results = []
-        for song in songs[:10]:
+        for item in response.get('items', []):
+            snippet = item['snippet']
+            clean_title = clean_display_name(snippet['title'])
+            author = snippet['channelTitle'].replace(" - Topic", "")
+            display_name = f"{clean_title} • {author}"
+            
             results.append({
-                'title': f"{song.name} • {song.artist}",
-                'song': song
+                'title': display_name[:50], 
+                'url': f"https://www.youtube.com/watch?v={item['id']['videoId']}"
             })
         return results
     except Exception as e:
-        logging.error(f"Search error: {e}")
+        logging.error(f"YouTube API Error: {e}")
         return []
 
-def download_song_spotdl(song):
+# 4. Функція завантаження (Твій фрагмент із виправленнями)
+async def download_song(video_url, title):
+    safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
+    temp_filename = f"track_{hash(video_url)}" 
+    final_file = f"{safe_title}.mp3"
+    
+    # Отримуємо cookies з налаштувань Railway
+    cookies_content = os.getenv("YT_COOKIES", "")
+    logging.info(f"Перевірка Cookies. Довжина рядка: {len(cookies_content)}")
+
+    # Шлях до тимчасового файлу кукі
+    cookie_file_path = "temp_cookies.txt"
+
+    def ytdl_download():
+        # Якщо в змінній є дані, записуємо їх у файл
+        if len(cookies_content) > 10:
+            with open(cookie_file_path, "w", encoding="utf-8") as f:
+                f.write(cookies_content)
+        
+        opts = {
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            'outtmpl': temp_filename,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192'
+            }],
+            'quiet': False, # Ввімкнено для відладки в логах Railway
+            'nocheckcertificate': True,
+            'cookiefile': cookie_file_path if len(cookies_content) > 10 else None,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['tv_embedded', 'ios']
+                }
+            },
+        }
+        
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([video_url])
+        
+        return f"{temp_filename}.mp3"
+
     try:
-        client = get_spotdl_client()
-        _, path = client.download(song)
-        return str(path) if path else None
+        loop = asyncio.get_event_loop()
+        downloaded_file = await loop.run_in_executor(None, ytdl_download)
+        
+        if downloaded_file and os.path.exists(downloaded_file):
+            if os.path.exists(final_file):
+                os.remove(final_file)
+            os.rename(downloaded_file, final_file)
+            
+            # Видаляємо тимчасовий файл кукі
+            if os.path.exists(cookie_file_path):
+                os.remove(cookie_file_path)
+            return final_file
+        return None
+        
     except Exception as e:
-        logging.error(f"Download error: {e}")
+        logging.error(f"Помилка завантаження: {e}")
+        if os.path.exists(cookie_file_path):
+            os.remove(cookie_file_path)
         return None
 
+# 5. Клавіатура
 def get_keyboard(user_id, page=0):
     results = search_cache.get(user_id, [])
     start = page * ITEMS_PER_PAGE
     end = start + ITEMS_PER_PAGE
     current_items = results[start:end]
-
+    
     buttons = []
     for i, track in enumerate(current_items):
         name = track.get('title', 'Unknown')[:40]
-        buttons.append([InlineKeyboardButton(
-            text=f"🎵 {name}",
-            callback_data=f"dl_{start + i}"
-        )])
-
-    total_pages = max(1, (len(results) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
+        buttons.append([InlineKeyboardButton(text=f"🎵 {name}", callback_data=f"dl_{start + i}")])
+    
+    total_pages = (len(results) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    if total_pages == 0: total_pages = 1
+    
     nav = [
         InlineKeyboardButton(text="⬅️", callback_data=f"pg_{max(0, page-1)}"),
         InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="none"),
@@ -80,69 +151,58 @@ def get_keyboard(user_id, page=0):
     buttons.append(nav)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+# 6. Обробники (Handler)
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer("🎧 Напиши название песни и я её найду!")
+    await message.answer("Привіт! Напиши назву пісні, і я її знайду 🎧")
 
 @dp.message(F.text)
 async def handle_search(message: types.Message):
-    if message.text.startswith("/"):
-        return
-    
-    status = await message.answer("🔎 Ищу...")
-
+    status = await message.answer("🔎 Шукаю найкращу версію для тебе...")
     loop = asyncio.get_event_loop()
-    results = await loop.run_in_executor(None, search_songs, message.text)
-
+    results = await loop.run_in_executor(None, search_youtube_api, message.text)
+            
     if not results:
-        await status.edit_text("❌ Ничего не найдено.")
+        await status.edit_text("❌ Нічого не знайдено (спробуй іншу назву).")
         return
 
     search_cache[message.from_user.id] = results
     await status.delete()
-    await message.answer(
-        f"По запросу: {message.text}",
-        reply_markup=get_keyboard(message.from_user.id, 0)
-    )
+    await message.answer(f"За запитом: {message.text}", reply_markup=get_keyboard(message.from_user.id, 0))
 
 @dp.callback_query(F.data.startswith("pg_"))
 async def change_page(callback: types.CallbackQuery):
     page = int(callback.data.split("_")[1])
-    await callback.message.edit_reply_markup(
-        reply_markup=get_keyboard(callback.from_user.id, page)
-    )
+    await callback.message.edit_reply_markup(reply_markup=get_keyboard(callback.from_user.id, page))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("dl_"))
 async def process_dl(callback: types.CallbackQuery):
     idx = int(callback.data.split("_")[1])
     results = search_cache.get(callback.from_user.id)
-
+    
     if not results:
-        await callback.answer("Результаты устарели.")
+        await callback.answer("Результати застаріли.")
         return
 
     track = results[idx]
-    wait_msg = await callback.message.answer(f"⏳ Загружаю: {track['title']}...")
-
+    wait_msg = await callback.message.answer(f"⏳ Завантажую: {track['title']}...")
+    
     try:
-        loop = asyncio.get_event_loop()
-        file_path = await loop.run_in_executor(
-            None, download_song_spotdl, track['song']
-        )
-
+        file_path = await download_song(track['url'], track['title'])
+        
         if file_path and os.path.exists(file_path):
             await callback.message.answer_audio(
-                audio=FSInputFile(file_path),
+                audio=FSInputFile(file_path), 
                 title=track['title']
             )
             await wait_msg.delete()
             os.remove(file_path)
         else:
-            await wait_msg.edit_text("❌ Ошибка загрузки.")
+            await wait_msg.edit_text("❌ Помилка: файл не створився. Можливо, YouTube заблокував запит.")
     except Exception as e:
         logging.error(f"Download error: {e}")
-        await wait_msg.edit_text("❌ Ошибка при загрузке.")
+        await wait_msg.edit_text("❌ Ошибка при загрузке или конвертации.")
 
 async def main():
     await dp.start_polling(bot)
