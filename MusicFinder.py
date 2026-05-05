@@ -87,14 +87,18 @@ async def download_song(video_url, title):
     logging.info(f"Перевірка Cookies. Довжина рядка: {len(cookies_content)}")
     cookie_file_path = "temp_cookies.txt"
 
-    def ytdl_download():
-    # Записуємо кукі у файл
+def ytdl_download(video_url, temp_filename, cookies_content, cookie_file_path):
+    """
+    Функция для скачивания аудио из YouTube.
+    Все отступы исправлены, интерфейс переведен на русский.
+    """
+    # Записываем куки в файл (отступ 4 пробела)
     if len(cookies_content) > 10:
         with open(cookie_file_path, "w", encoding="utf-8") as f:
             f.write(cookies_content)
     
+    # Настройки для скачивания
     opts = {
-        # 'ba' означає best audio. Вибираємо найкращий доступний звук
         'format': 'ba/b', 
         'outtmpl': temp_filename,
         'postprocessors': [{
@@ -106,7 +110,6 @@ async def download_song(video_url, title):
         'nocheckcertificate': True,
         'cookiefile': cookie_file_path if len(cookies_content) > 10 else None,
         'cachedir': False,
-        # Важливо: використовуємо клієнт ios, він зараз працює найкраще
         'extractor_args': {
             'youtube': {
                 'player_client': ['ios'],
@@ -114,30 +117,14 @@ async def download_song(video_url, title):
         },
     }
     
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        # Спробуємо завантажити. Якщо ios не спрацює, yt-dlp спробує інші методи.
-        ydl.download([video_url])
-    
-    return f"{temp_filename}.mp3"
-
     try:
-        loop = asyncio.get_event_loop()
-        downloaded_file = await loop.run_in_executor(None, ytdl_download)
-        
-        if downloaded_file and os.path.exists(downloaded_file):
-            if os.path.exists(final_file):
-                os.remove(final_file)
-            os.rename(downloaded_file, final_file)
-            
-            if os.path.exists(cookie_file_path):
-                os.remove(cookie_file_path)
-            return final_file
-        return None
-        
+        # Процесс скачивания
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([video_url])
+        return f"{temp_filename}.mp3"
     except Exception as e:
-        logging.error(f"Помилка завантаження: {e}")
-        if os.path.exists(cookie_file_path):
-            os.remove(cookie_file_path)
+        # Если произошла ошибка, возвращаем текст на русском
+        print(f"Ошибка при скачивании: {e}")
         return None
 
 # 5. Клавіатура
