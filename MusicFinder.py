@@ -68,6 +68,19 @@ async def download_song(video_url, title):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, ytdl_run)
 
+def verify_cookie_format():
+    if os.path.exists('cookies.txt'):
+        with open('cookies.txt', 'r') as f:
+            line = f.readline()
+            if "# Netscape HTTP Cookie File" in line:
+                logging.info("✅ Файл куков найден и имеет верный заголовок")
+            else:
+                logging.warning("⚠️ Заголовок куков не совпадает с форматом Netscape!")
+    else:
+        logging.error("❌ Файл cookies.txt отсутствует в корне проекта!")
+
+verify_cookie_format()
+
 # 🎛 ГЕНЕРАЦИЯ КЛАВИАТУРЫ
 def get_keyboard(user_id, page=0):
     data = search_cache.get(user_id, {})
