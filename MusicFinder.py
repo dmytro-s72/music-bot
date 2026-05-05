@@ -27,14 +27,16 @@ def get_search_opts():
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
+        'source_address': '0.0.0.0', # Примусово використовуємо IPv4
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios', 'android', 'web'],
+                # Використовуємо комбінацію стабільних клієнтів
+                'player_client': ['android', 'ios'],
                 'skip': ['webpage', 'hls', 'dash'],
             }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+            'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:124.0) Gecko/124.0 Firefox/124.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-us,en;q=0.5',
         },
