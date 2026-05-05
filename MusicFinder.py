@@ -89,12 +89,14 @@ async def download_song(video_url, title):
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '192'
+                'sleep_interval': 1,
+                'max_sleep_interval': 3,
             }],
             'quiet': True,
             'nocheckcertificate': True,
             'extractor_args': {
               'youtube': {
-                   'player_client': ['android'],
+                   'player_client': ['android_vr'],
               }
             },
             # Додаткові налаштування для стабільності
