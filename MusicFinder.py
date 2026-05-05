@@ -92,11 +92,10 @@ async def download_song(video_url, title):
             }],
             'quiet': True,
             'nocheckcertificate': True,
-            # Використовуємо клієнтів, які не потребують PO Token зараз
             'extractor_args': {
-                'youtube': {
-                    'player_client': ['ios', 'web_embedded'],
-                }
+              'youtube': {
+                   'player_client': ['android'],
+              }
             },
             # Додаткові налаштування для стабільності
             'socket_timeout': 30,
