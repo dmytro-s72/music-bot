@@ -21,14 +21,17 @@ last_requests = {}
 ITEMS_PER_PAGE = 8
 
 # 🔍 ЕДИНЫЕ НАСТРОЙКИ (Для поиска и загрузки)
+# 🔍 ЕДИНЫЕ НАСТРОЙКИ (Для поиска и загрузки)
 def get_ytdl_opts(for_download=False, out_name=None):
-    cookie_path = 'cookies.txt'
+    # ЗМІНЕНО: тепер вказуємо шлях до JSON файлу
+    cookie_path = 'cookies.json'
     
     opts = {
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
+        # ЗМІНЕНО: додаємо перевірку наявності саме JSON
         'cookiefile': cookie_path if os.path.exists(cookie_path) else None,
         'source_address': '0.0.0.0',
         'extractor_args': {
@@ -54,13 +57,12 @@ def get_ytdl_opts(for_download=False, out_name=None):
         })
     return opts
 
-# 🎧 ФУНКЦИЯ ЗАГРУЗКИ (Исправлено)
+# 🎧 ФУНКЦИЯ ЗАГРУЗКИ (Залишається без змін, бо вона викликає get_ytdl_opts)
 async def download_song(video_url, title):
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
     file_path = f"{safe_title}.mp3"
 
     def ytdl_run():
-        # Используем те же куки, что и в поиске!
         with yt_dlp.YoutubeDL(get_ytdl_opts(for_download=True, out_name=safe_title)) as ydl:
             ydl.download([video_url])
         return file_path
@@ -68,17 +70,21 @@ async def download_song(video_url, title):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, ytdl_run)
 
+# 🛠 ВИПРАВЛЕНА ПЕРЕВІРКА КУКІВ (Для JSON формату)
 def verify_cookie_format():
-    if os.path.exists('cookies.txt'):
-        with open('cookies.txt', 'r') as f:
-            line = f.readline()
-            if "# Netscape HTTP Cookie File" in line:
-                logging.info("✅ Файл куков найден и имеет верный заголовок")
-            else:
-                logging.warning("⚠️ Заголовок куков не совпадает с форматом Netscape!")
+    if os.path.exists('cookies.json'):
+        try:
+            with open('cookies.json', 'r', encoding='utf-8') as f:
+                # Перевіряємо, чи це валідний JSON
+                json.load(f) 
+            logging.info("✅ Файл cookies.json знайдено та успішно прочитано")
+        except Exception as e:
+            logging.error(f"❌ Помилка у форматі cookies.json: {e}")
     else:
-        logging.error("❌ Файл cookies.txt отсутствует в корне проекта!")
+        logging.error("❌ Файл cookies.json відсутній у корені проєкту!")
 
+# Не забудь імпортувати json на початку файлу!
+import json 
 verify_cookie_format()
 
 # 🎛 ГЕНЕРАЦИЯ КЛАВИАТУРЫ
