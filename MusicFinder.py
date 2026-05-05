@@ -3,7 +3,6 @@ import asyncio
 import re
 import logging
 import yt_dlp
-import random
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
@@ -23,29 +22,25 @@ ITEMS_PER_PAGE = 8
 
 # 🔍 НАЛАШТУВАННЯ ПОШУКУ (Оновлено для обходу блокувань)
 def get_search_opts():
-    # Список різних User-Agent для ротації
-    user_agents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    ]
+    # Шлях до файлу cookies, який вже є у твоєму репозиторії
+    cookie_path = 'cookies.txt' if os.path.exists('cookies.txt') else None
     
     return {
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        'geo_bypass': True,
+        'cookiefile': cookie_path, # Використовуємо твій файл куків
+        'source_address': '0.0.0.0', 
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web'], # Змінено черговість
+                'player_client': ['android'], # Лишаємо тільки найнадійніший клієнт
                 'skip': ['webpage', 'hls', 'dash'],
             }
         },
         'http_headers': {
-            'User-Agent': random.choice(user_agents),
+            'User-Agent': 'com.google.android.youtube/19.16.38 (Linux; U; Android 14; en_US) gzip',
             'Accept': '*/*',
-            'Accept-Language': 'en-US,en;q=0.5',
         },
     }
 
