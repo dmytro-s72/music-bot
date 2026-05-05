@@ -79,33 +79,33 @@ async def download_song(video_url, title):
     cookie_file_path = "temp_cookies.txt"
 
     def ytdl_download():
-        # Якщо в змінній є дані, записуємо їх у файл
-        if len(cookies_content) > 10:
-            with open(cookie_file_path, "w", encoding="utf-8") as f:
-                f.write(cookies_content)
-        
-        opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio/best',
-            'outtmpl': temp_filename,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192'
-            }],
-            'quiet': False, # Ввімкнено для відладки в логах Railway
-            'nocheckcertificate': True,
-            'cookiefile': cookie_file_path if len(cookies_content) > 10 else None,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['tv_embedded', 'ios']
-                }
-            },
-        }
-        
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([video_url])
-        
-        return f"{temp_filename}.mp3"
+    if len(cookies_content) > 10:
+        with open(cookie_file_path, "w", encoding="utf-8") as f:
+            f.write(cookies_content)
+    
+    opts = {
+        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'outtmpl': temp_filename,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192'
+        }],
+        'quiet': False,
+        'nocheckcertificate': True,
+        'cookiefile': cookie_file_path if len(cookies_content) > 10 else None,
+        'cachedir': False, # ДОДАНО: вимикаємо кешування, щоб уникнути конфліктів
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['tv_embedded', 'ios']
+            }
+        },
+    }
+    
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.download([video_url])
+    
+    return f"{temp_filename}.mp3"
 
     try:
         loop = asyncio.get_event_loop()
