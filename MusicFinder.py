@@ -20,30 +20,53 @@ search_cache = {}
 ITEMS_PER_PAGE = 8
 
 # 3. Налаштування лише для пошуку (щоб знайти посилання на відео)
-# --- ОНОВЛЕНІ НАЛАШТУВАННЯ ПОШУКУ ---
 def get_search_opts():
     return {
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        # Додаємо фільтрацію прямо в пошуковий запит через match_filter
+
+        # 👇 ІМІТАЦІЯ РЕАЛЬНОГО ПРИСТРОЮ
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        },
+
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        },
+
+        # фільтр залишаємо
         'match_filter': yt_dlp.utils.match_filter_func(
             "duration > 60 & view_count > 1000 & !is_live"
         ),
     }
 
-# 4. ФУНКЦІЯ ЗАВАНТАЖЕННЯ ЧЕРЕЗ API (обхід 18+)
+# 4. ФУНКЦІЯ ЗАВАНТАЖЕННЯ ЧЕРЕЗ API
 async def download_song(video_url, title):
-    # Очищуємо назву для файлу
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
     file_path = f"{safe_title}.mp3"
-    
-    # Отримуємо ID відео з посилання
+
     video_id = video_url.split("v=")[-1]
-    # Використовуємо API для отримання прямого посилання на MP3
     api_url = f"https://api.vevioz.com/api/button/mp3/{video_id}"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(api_url) as resp:
+            text = await resp.text()
+
+    match = re.search(r'href="(https:[^"]+\.mp3)"', text)
+    
+    if match:
+        download_url = match.group(1)
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(download_url) as resp:
+                with open(file_path, "wb") as f:
+                    f.write(await resp.read())
+
+        return file_path
     
     # Використовуємо yt-dlp як запасний варіант, але з імітацією браузера
     def ytdl_fallback():
