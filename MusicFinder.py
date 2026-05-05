@@ -3,6 +3,7 @@ import asyncio
 import re
 import logging
 import yt_dlp
+import random
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
@@ -21,8 +22,6 @@ last_requests = {}
 ITEMS_PER_PAGE = 8
 
 # 🔍 НАЛАШТУВАННЯ ПОШУКУ (Оновлено для обходу блокувань)
-import random
-
 def get_search_opts():
     # Список різних User-Agent для ротації
     user_agents = [
