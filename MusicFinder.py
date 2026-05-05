@@ -13,7 +13,6 @@ from googleapiclient.discovery import build
 logging.basicConfig(level=logging.INFO)
 
 # 2. Змінні конфігурації
-# Отримуємо токени безпечно через змінні оточення
 TOKEN = os.getenv("BOT_TOKEN")
 YT_API_KEY = os.getenv("YT_API_KEY")
 
@@ -34,7 +33,7 @@ def clean_display_name(text):
 
 # 3. Функція пошуку через YouTube Data API v3
 def search_youtube_api(query):
-    """Покращений пошук для знаходження конкретних треків"""
+    """Пошук через YouTube API"""
     try:
         youtube = build('youtube', 'v3', developerKey=YT_API_KEY)
         full_query = f"{query} full track audio"
@@ -43,7 +42,7 @@ def search_youtube_api(query):
             q=full_query,
             part='snippet',
             type='video',
-            videoCategoryId='10', # Музика
+            videoCategoryId='10',
             videoDuration='medium',
             maxResults=10
         )
@@ -65,47 +64,46 @@ def search_youtube_api(query):
         logging.error(f"YouTube API Error: {e}")
         return []
 
-# 4. Функція завантаження (Твій фрагмент із виправленнями)
+# 4. Функція завантаження
 async def download_song(video_url, title):
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
     temp_filename = f"track_{hash(video_url)}" 
     final_file = f"{safe_title}.mp3"
     
-    # Отримуємо cookies з налаштувань Railway
     cookies_content = os.getenv("YT_COOKIES", "")
     logging.info(f"Перевірка Cookies. Довжина рядка: {len(cookies_content)}")
-
-    # Шлях до тимчасового файлу кукі
     cookie_file_path = "temp_cookies.txt"
 
+    # Внутрішня функція для yt-dlp
     def ytdl_download():
-    if len(cookies_content) > 10:
-        with open(cookie_file_path, "w", encoding="utf-8") as f:
-            f.write(cookies_content)
-    
-    opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio/best',
-        'outtmpl': temp_filename,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192'
-        }],
-        'quiet': False,
-        'nocheckcertificate': True,
-        'cookiefile': cookie_file_path if len(cookies_content) > 10 else None,
-        'cachedir': False, # ДОДАНО: вимикаємо кешування, щоб уникнути конфліктів
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['tv_embedded', 'ios']
-            }
-        },
-    }
-    
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([video_url])
-    
-    return f"{temp_filename}.mp3"
+        # ОСЬ ТУТ БУЛА ПОМИЛКА: додано відступи для всього блоку нижче
+        if len(cookies_content) > 10:
+            with open(cookie_file_path, "w", encoding="utf-8") as f:
+                f.write(cookies_content)
+        
+        opts = {
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            'outtmpl': temp_filename,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192'
+            }],
+            'quiet': False,
+            'nocheckcertificate': True,
+            'cookiefile': cookie_file_path if len(cookies_content) > 10 else None,
+            'cachedir': False,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['tv_embedded', 'ios']
+                }
+            },
+        }
+        
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([video_url])
+        
+        return f"{temp_filename}.mp3"
 
     try:
         loop = asyncio.get_event_loop()
@@ -116,7 +114,6 @@ async def download_song(video_url, title):
                 os.remove(final_file)
             os.rename(downloaded_file, final_file)
             
-            # Видаляємо тимчасовий файл кукі
             if os.path.exists(cookie_file_path):
                 os.remove(cookie_file_path)
             return final_file
@@ -199,10 +196,10 @@ async def process_dl(callback: types.CallbackQuery):
             await wait_msg.delete()
             os.remove(file_path)
         else:
-            await wait_msg.edit_text("❌ Помилка: файл не створився. Можливо, YouTube заблокував запит.")
+            await wait_msg.edit_text("❌ Помилка завантаження (можливо, YouTube блокує сервер).")
     except Exception as e:
         logging.error(f"Download error: {e}")
-        await wait_msg.edit_text("❌ Ошибка при загрузке или конвертации.")
+        await wait_msg.edit_text("❌ Сталася внутрішня помилка.")
 
 async def main():
     await dp.start_polling(bot)
