@@ -3,14 +3,14 @@ import asyncio
 import re
 import logging
 import yt_dlp
-import aiohttp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 
+# Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
-# Отримання токену з перемінних оточення Railway
+# Отримання токену з перемінних оточення
 TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -20,7 +20,6 @@ search_cache = {}
 last_requests = {} 
 ITEMS_PER_PAGE = 8
 
-# 🔍 НАЛАШТУВАННЯ ПОШУКУ (Оптимізовано для Railway)
 # 🔍 НАЛАШТУВАННЯ ПОШУКУ (Оновлено для обходу блокувань)
 def get_search_opts():
     return {
@@ -30,14 +29,11 @@ def get_search_opts():
         'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                # Використовуємо комбінацію клієнтів. 'ios' зараз найстабільніший.
                 'player_client': ['ios', 'android', 'web'],
-                # Додаємо пропуск перевірки віку та інших обмежень
                 'skip': ['webpage', 'hls', 'dash'],
             }
         },
         'http_headers': {
-            # Використовуємо реальний User-Agent мобільного Safari
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-us,en;q=0.5',
@@ -46,14 +42,14 @@ def get_search_opts():
 
 # 🎧 ФУНКЦІЯ ЗАВАНТАЖЕННЯ
 async def download_song(video_url, title):
-    # Очищення назви від заборонених символів Windows/Linux
+    # Очищення назви від заборонених символів
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
     file_path = f"{safe_title}.mp3"
 
     def ytdl_fallback():
         opts = {
             'format': 'bestaudio/best',
-            'outtmpl': f"{safe_title}.%(ext)s", # Обов'язково з розширенням
+            'outtmpl': f"{safe_title}.%(ext)s",
             'quiet': True,
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
@@ -80,7 +76,6 @@ def get_keyboard(user_id, page=0):
     buttons = []
     for i, track in enumerate(current_items):
         name = track.get('title', 'Unknown')[:40]
-        # callback_data містить індекс треку в загальному списку
         buttons.append([InlineKeyboardButton(text=f"🎵 {name}", callback_data=f"dl_{start + i}")])
 
     total_pages = (len(results) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
@@ -103,7 +98,6 @@ async def handle_search(message: types.Message):
     user_id = message.from_user.id
     query_text = message.text.strip().lower()
 
-    # ✅ АНТИ-ДУБЛЬ (якщо користувач пише те саме занадто швидко)
     if last_requests.get(user_id) == query_text:
         return 
     last_requests[user_id] = query_text
@@ -121,7 +115,6 @@ async def handle_search(message: types.Message):
             last_requests[user_id] = None
             return
 
-        # Зберігаємо результати в кеш
         search_cache[user_id] = {'items': results}
         
         await status.delete()
@@ -144,7 +137,7 @@ async def change_page(callback: types.CallbackQuery):
             reply_markup=get_keyboard(callback.from_user.id, page)
         )
     except:
-        pass # Ігноруємо, якщо сторінка та сама
+        pass 
     await callback.answer()
 
 # ⬇️ ЗАВАНТАЖЕННЯ ТА ВІДПРАВКА
@@ -175,8 +168,15 @@ async def process_dl(callback: types.CallbackQuery):
         logging.error(f"Download error: {e}")
         await wait_msg.edit_text("❌ Ошибка при загрузке аудио")
 
+# 🚀 ЗАПУСК БОТА
 async def main():
+    # Видаляємо конфлікти з'єднань та Webhook
+    await bot.delete_webhook(drop_pending_updates=True)
+    # Починаємо отримання повідомлень
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Бот зупинений")
