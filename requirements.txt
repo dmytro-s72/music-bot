@@ -1,4 +1,3 @@
-aiogram==3.13.0
-yt-dlp==2024.08.06
-aiohttp
-aiofiles
+aiogram
+yt-dlp
+google-api-python-client
