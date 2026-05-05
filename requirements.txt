@@ -1,2 +1,3 @@
 aiogram
-spotdl
+yt-dlp
+google-api-python-client
