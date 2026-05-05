@@ -21,26 +21,35 @@ last_requests = {}
 ITEMS_PER_PAGE = 8
 
 # 🔍 НАЛАШТУВАННЯ ПОШУКУ (Оновлено для обходу блокувань)
+import random
+
 def get_search_opts():
+    # Список різних User-Agent для ротації
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    ]
+    
     return {
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        'source_address': '0.0.0.0', # Примусово використовуємо IPv4
+        'geo_bypass': True,
         'extractor_args': {
             'youtube': {
-                # Використовуємо комбінацію стабільних клієнтів
-                'player_client': ['android', 'ios'],
+                'player_client': ['android', 'web'], # Змінено черговість
                 'skip': ['webpage', 'hls', 'dash'],
             }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:124.0) Gecko/124.0 Firefox/124.0',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
+            'User-Agent': random.choice(user_agents),
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.5',
         },
     }
+
 
 # 🎧 ФУНКЦІЯ ЗАВАНТАЖЕННЯ
 async def download_song(video_url, title):
