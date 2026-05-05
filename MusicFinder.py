@@ -21,6 +21,7 @@ last_requests = {}
 ITEMS_PER_PAGE = 8
 
 # 🔍 НАЛАШТУВАННЯ ПОШУКУ (Оптимізовано для Railway)
+# 🔍 НАЛАШТУВАННЯ ПОШУКУ (Оновлено для обходу блокувань)
 def get_search_opts():
     return {
         'format': 'bestaudio/best',
@@ -29,11 +30,17 @@ def get_search_opts():
         'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios'] # ios краще обходить блоки
+                # Використовуємо комбінацію клієнтів. 'ios' зараз найстабільніший.
+                'player_client': ['ios', 'android', 'web'],
+                # Додаємо пропуск перевірки віку та інших обмежень
+                'skip': ['webpage', 'hls', 'dash'],
             }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            # Використовуємо реальний User-Agent мобільного Safari
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
         },
     }
 
