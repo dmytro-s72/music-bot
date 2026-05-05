@@ -75,50 +75,57 @@ def search_youtube_api(query):
 
 # 4. Функція завантаження
 async def download_song(video_url, title):
+    """
+    Завантажує аудіо з YouTube та конвертує в MP3 з виправленими відступами.
+    """
     # Очищення назви для файлової системи
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
-    # Важливо: використовуємо унікальне ім'я для завантаження
+    # Створюємо унікальне ім'я для тимчасового файлу
     temp_filename = f"track_{hash(video_url)}" 
     final_file = f"{safe_title}.mp3"
     
+    # Внутрішня функція для роботи з yt_dlp (виконується в окремому потоці)
     def ytdl_download():
-    opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': temp_filename,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192'
-        }],
-        'quiet': True,
-        'nocheckcertificate': True,
-        'sleep_interval': 1,
-        'max_sleep_interval': 3,
-        'socket_timeout': 30,
-        'retries': 3,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android_vr']
-            }
-        },
-    }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([video_url])
-    return f"{temp_filename}.mp3"
+        opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': temp_filename,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192'
+            }],
+            'quiet': True,
+            'nocheckcertificate': True,
+            'sleep_interval': 1,
+            'max_sleep_interval': 3,
+            'socket_timeout': 30,
+            'retries': 3,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android_vr'] # Спроба обійти блокування
+                }
+            },
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([video_url])
+        return f"{temp_filename}.mp3"
 
+    # Основний блок виконання завантаження
     try:
         loop = asyncio.get_event_loop()
+        # Запускаємо завантаження так, щоб воно не зупиняло всього бота
         downloaded_file = await loop.run_in_executor(None, ytdl_download)
         
-        # Перейменовуємо файл у красиву назву перед відправкою
+        # Перевіряємо, чи створився файл, і перейменовуємо його у зрозумілу назву
         if os.path.exists(downloaded_file):
             if os.path.exists(final_file):
-                os.remove(final_file) # Видаляємо старий, якщо є
+                os.remove(final_file) # Видаляємо дублікат, якщо він залишився з минулого разу
             os.rename(downloaded_file, final_file)
             return final_file
         return None
+        
     except Exception as e:
-        logging.error(f"Критична помилка yt-dlp: {e}")
+        logging.error(f"Критична помилка завантаження: {e}")
         return None
 
 # 5. Клавіатура (логіка залишена без змін)
