@@ -1,8 +1,0 @@
-{
-  "$schema": "https://schema.railpack.com",
-  "buildAptPackages": ["ffmpeg"],
-  "deploy": {
-    "aptPackages": ["ffmpeg"],
-    "startCommand": "python3 MusicFinder.py"
-  }
-}
