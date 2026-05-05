@@ -67,35 +67,43 @@ convert_json_to_netscape()
 
 # 🔍 НАЛАШТУВАННЯ YT-DLP (ВИПРАВЛЕНО)
 def get_ytdl_opts(for_download=False, out_name=None):
-    # ТУТ МАЄ БУТИ ТІЛЬКИ .txt!
-    cookie_path = 'cookies.txt' 
+    # Шлях до файлу з кукі, який ви експортували раніше
+    cookie_path = 'cookies.txt'
     
     opts = {
-        'format': 'bestaudio/best',
-        'quiet': True,
-        'no_warnings': True,
-        'nocheckcertificate': True,
+        'format': 'bestaudio/best',        # Вибираємо найкращу якість звуку
+        'quiet': True,                     # Не виводити зайвий текст у консоль
+        'no_warnings': True,               # Приховати попередження
+        'nocheckcertificate': True,        # Ігнорувати помилки SSL-сертифікатів
+        # Перевіряємо, чи існує файл cookies.txt, перш ніж його використовувати
         'cookiefile': cookie_path if os.path.exists(cookie_path) else None,
-        'source_address': '0.0.0.0',
+        
+        'geo_bypass': True,                # Обхід територіальних обмежень
+        'n_threads': 4,                    # Використовувати 4 потоки для швидкості
         'extractor_args': {
             'youtube': {
-                'player_client': ['mweb', 'android'],
+                # Пробуємо спочатку Android-клієнт, він часто працює краще
+                'player_client': ['android', 'web'], 
                 'skip': ['webpage', 'configs'],
             }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1',
-            'Accept-Language': 'en-US,en;q=0.9',
+            # Маскуємо бота під реальний браузер Chrome
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Cache-Control': 'no-cache',
         },
     }
 
+    # Якщо ми хочемо саме завантажити файл, а не просто отримати посилання
     if for_download:
         opts.update({
-            'outtmpl': f"{out_name}.%(ext)s",
+            'outtmpl': f"{out_name}.%(ext)s", # Назва файлу для збереження
             'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192'
+                'key': 'FFmpegExtractAudio',  # Витягуємо тільки звук
+                'preferredcodec': 'mp3',      # Конвертуємо в MP3
+                'preferredquality': '192'     # Якість 192 kbps
             }],
         })
     return opts
