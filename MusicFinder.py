@@ -3,128 +3,106 @@ import asyncio
 import re
 import logging
 import yt_dlp
-import json
-import time
+import aiohttp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Получение токена
 TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Хранилище
 search_cache = {}
-last_requests = {} 
 ITEMS_PER_PAGE = 8
 
-# 🛠 ФУНКЦІЯ КОНВЕРТАЦІЇ (Працює автоматично)
-def convert_json_to_netscape():
-    json_path = 'cookies.json'
-    txt_path = 'cookies.txt'
-    
-    if not os.path.exists(json_path):
-        if os.path.exists(txt_path):
-            logging.info("✅ cookies.txt вже готовий, JSON не потрібен.")
-            return
-        logging.error("❌ Файлів куків не знайдено!")
-        return
+# 🔍 ПОШУК (обхід блоків)
+def get_search_opts():
+    return {
+        'format': 'bestaudio/best',
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
 
-    try:
-        with open(json_path, 'r', encoding='utf-8') as f:
-            cookies = json.load(f)
-        
-        with open(txt_path, 'w', encoding='utf-8') as f:
-            f.write("# Netscape HTTP Cookie File\n")
-            f.write("# http://curl.haxx.se/rfc/cookie_spec.html\n\n")
-            
-            for c in cookies:
-                domain = c.get('domain', '')
-                flag = "TRUE" if domain.startswith('.') else "FALSE"
-                path = c.get('path', '/')
-                secure = "TRUE" if c.get('secure') else "FALSE"
-                expiry = int(c.get('expirationDate', 2147483647))
-                name = c.get('name', '')
-                value = c.get('value', '')
-                
-                line = f"{domain}\t{flag}\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n"
-                f.write(line)
-        
-        logging.info("✅ cookies.txt створено успішно.")
-        # Видаляємо JSON, щоб yt-dlp не намагався його використати помилково
-        os.remove(json_path) 
-        time.sleep(1) 
-        
-    except Exception as e:
-        logging.error(f"❌ Помилка конвертації: {e}")
-
-# Викликаємо конвертацію ПЕРЕД стартом
-convert_json_to_netscape()
-
-# 🔍 НАЛАШТУВАННЯ YT-DLP (ВИПРАВЛЕНО)
-def get_ytdl_opts(for_download=False, out_name=None):
-    # Шлях до файлу з кукі, який ви експортували раніше
-    cookie_path = 'cookies.txt'
-    
-    opts = {
-        'format': 'bestaudio/best',        # Вибираємо найкращу якість звуку
-        'quiet': True,                     # Не виводити зайвий текст у консоль
-        'no_warnings': True,               # Приховати попередження
-        'nocheckcertificate': True,        # Ігнорувати помилки SSL-сертифікатів
-        # Перевіряємо, чи існує файл cookies.txt, перш ніж його використовувати
-        'cookiefile': cookie_path if os.path.exists(cookie_path) else None,
-        
-        'geo_bypass': True,                # Обхід територіальних обмежень
-        'n_threads': 4,                    # Використовувати 4 потоки для швидкості
         'extractor_args': {
             'youtube': {
-                # Пробуємо спочатку Android-клієнт, він часто працює краще
-                'player_client': ['android', 'web'], 
-                'skip': ['webpage', 'configs'],
+                'player_client': ['android', 'web']
             }
         },
+
         'http_headers': {
-            # Маскуємо бота під реальний браузер Chrome
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Cache-Control': 'no-cache',
+            'User-Agent': 'Mozilla/5.0'
         },
+
+        'match_filter': yt_dlp.utils.match_filter_func(
+            "duration > 60 & view_count > 1000 & !is_live"
+        ),
     }
 
-    # Якщо ми хочемо саме завантажити файл, а не просто отримати посилання
-    if for_download:
-        opts.update({
-            'outtmpl': f"{out_name}.%(ext)s", # Назва файлу для збереження
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',  # Витягуємо тільки звук
-                'preferredcodec': 'mp3',      # Конвертуємо в MP3
-                'preferredquality': '192'     # Якість 192 kbps
-            }],
-        })
-    return opts
-
-# 🎧 ФУНКЦІЯ ЗАГРУЗКИ
+# 🎧 ЗАВАНТАЖЕННЯ
 async def download_song(video_url, title):
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
     file_path = f"{safe_title}.mp3"
 
-    def ytdl_run():
-        with yt_dlp.YoutubeDL(get_ytdl_opts(for_download=True, out_name=safe_title)) as ydl:
+    video_id = video_url.split("v=")[-1]
+    api_url = f"https://api.vevioz.com/api/button/mp3/{video_id}"
+
+    # --- 1. СПРОБА ЧЕРЕЗ API ---
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url) as resp:
+                text = await resp.text()
+
+        match = re.search(r'href="(https:[^"]+\.mp3)"', text)
+
+        if match:
+            download_url = match.group(1)
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(download_url) as resp:
+                    with open(file_path, "wb") as f:
+                        f.write(await resp.read())
+
+            return file_path
+    except Exception as e:
+        logging.error(f"API error: {e}")
+
+    # --- 2. FALLBACK через yt-dlp ---
+    def ytdl_fallback():
+        opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': safe_title,
+            'quiet': True,
+
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web']
+                }
+            },
+
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0'
+            },
+
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192'
+            }],
+        }
+
+        with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([video_url])
+
         return file_path
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, ytdl_run)
+    return await loop.run_in_executor(None, ytdl_fallback)
 
-# 🎛 ГЕНЕРАЦІЯ КЛАВІАТУРИ
+# 🎛 КНОПКИ
 def get_keyboard(user_id, page=0):
-    data = search_cache.get(user_id, {})
-    results = data.get('items', [])
+    results = search_cache.get(user_id, [])
     start = page * ITEMS_PER_PAGE
     end = start + ITEMS_PER_PAGE
     current_items = results[start:end]
@@ -141,74 +119,72 @@ def get_keyboard(user_id, page=0):
         InlineKeyboardButton(text="➡️", callback_data=f"pg_{min(total_pages-1, page+1)}")
     ]
     buttons.append(nav)
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# ▶️ КОМАНДА /START
+# ▶️ СТАРТ
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer("Привет! Напиши название песни, а я её найду 🎧")
+    await message.answer("Напиши название песни, а я ее найду 🎧")
 
-# 🔎 ОБРОБКА ПОШУКУ
+# 🔎 ПОШУК
 @dp.message(F.text)
 async def handle_search(message: types.Message):
-    user_id = message.from_user.id
-    query_text = message.text.strip().lower()
-
-    if last_requests.get(user_id) == query_text:
-        return 
-    last_requests[user_id] = query_text
-
+    if message.text.startswith("/"):
+        return
     status = await message.answer("🔎 Ищу...")
 
     try:
-        with yt_dlp.YoutubeDL(get_ytdl_opts()) as ydl:
+        with yt_dlp.YoutubeDL(get_search_opts()) as ydl:
             search_query = f"ytsearch10:{message.text} audio"
             info = ydl.extract_info(search_query, download=False)
-            results = [e for e in info.get('entries', []) if e and not e.get('is_live')]
+
+            results = [
+                entry for entry in info.get('entries', [])
+                if entry and not entry.get('is_live')
+            ]
 
         if not results:
             await status.edit_text("❌ Ничего не найдено")
-            last_requests[user_id] = None
             return
 
-        search_cache[user_id] = {'items': results}
+        search_cache[message.from_user.id] = results
         await status.delete()
+
         await message.answer(
-            f"Результаты по запросу: {message.text}",
-            reply_markup=get_keyboard(user_id, 0)
+            f"По запросу: {message.text}",
+            reply_markup=get_keyboard(message.from_user.id, 0)
         )
+
     except Exception as e:
         logging.error(f"Search error: {e}")
-        await status.edit_text("❌ Ошибка поиска. Попробуйте позже.")
-        last_requests[user_id] = None
+        await status.edit_text("❌ Ошибка поиска")
 
-# 🔄 ПЕРЕМИКАННЯ СТОРІНОК
+# 🔄 ПЕРЕКЛЮЧЕННЯ СТОРІНОК
 @dp.callback_query(F.data.startswith("pg_"))
 async def change_page(callback: types.CallbackQuery):
     page = int(callback.data.split("_")[1])
-    try:
-        await callback.message.edit_reply_markup(
-            reply_markup=get_keyboard(callback.from_user.id, page)
-        )
-    except:
-        pass 
+    await callback.message.edit_reply_markup(
+        reply_markup=get_keyboard(callback.from_user.id, page)
+    )
     await callback.answer()
 
-# ⬇️ ЗАВАНТАЖЕННЯ ТА ВІДПРАВКА
+# ⬇️ ЗАВАНТАЖЕННЯ
 @dp.callback_query(F.data.startswith("dl_"))
 async def process_dl(callback: types.CallbackQuery):
     idx = int(callback.data.split("_")[1])
-    data = search_cache.get(callback.from_user.id)
+    results = search_cache.get(callback.from_user.id)
 
-    if not data:
-        await callback.answer("Результаты устарели, выполните поиск снова", show_alert=True)
+    if not results:
+        await callback.answer("Результаты устарели")
         return
 
-    track = data['items'][idx]
-    wait_msg = await callback.message.answer("⏳ Загружаю аудио...")
+    track = results[idx]
+    wait_msg = await callback.message.answer("⏳ Загружаю...")
 
     try:
         file_path = await download_song(track['webpage_url'], track['title'])
+
         if os.path.exists(file_path):
             await callback.message.answer_audio(
                 audio=FSInputFile(file_path),
@@ -218,17 +194,14 @@ async def process_dl(callback: types.CallbackQuery):
             os.remove(file_path)
         else:
             await wait_msg.edit_text("❌ Файл не найден")
+
     except Exception as e:
         logging.error(f"Download error: {e}")
-        await wait_msg.edit_text("❌ Ошибка при загрузке аудио")
+        await wait_msg.edit_text("❌ Ошибка загрузки")
 
 # 🚀 ЗАПУСК
 async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("Бот остановлен")
+    asyncio.run(main())
