@@ -75,16 +75,24 @@ def search_youtube_api(query):
 
 # 4. Функція завантаження
 async def download_song(video_url, title):
-    """
-    Завантажує аудіо, використовуючи tv_embedded клієнт та розширений пошук форматів.
-    """
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
     temp_filename = f"track_{hash(video_url)}" 
     final_file = f"{safe_title}.mp3"
     
+    # Отримуємо cookies з налаштувань Railway
+    cookies_content = os.getenv("YT_COOKIES", "")
+    logging.info(f"Перевірка Cookies. Довжина рядка: {len(cookies_content)}")
+
+    # Шлях до тимчасового файлу кукі
+    cookie_file_path = "temp_cookies.txt"
+
     def ytdl_download():
+        # Якщо в змінній є дані, записуємо їх у файл
+        if len(cookies_content) > 10:
+            with open(cookie_file_path, "w", encoding="utf-8") as f:
+                f.write(cookies_content)
+        
         opts = {
-            # 1. Покращений вибір формату: пріоритет на m4a для кращої конвертації
             'format': 'bestaudio[ext=m4a]/bestaudio/best',
             'outtmpl': temp_filename,
             'postprocessors': [{
@@ -92,36 +100,40 @@ async def download_song(video_url, title):
                 'preferredcodec': 'mp3',
                 'preferredquality': '192'
             }],
-            'quiet': True,
+            'quiet': False, # Тимчасово вмикаємо лог для відладки
             'nocheckcertificate': True,
-            'sleep_interval': 1,
-            'max_sleep_interval': 3,
-            'socket_timeout': 30,
-            'retries': 3,
+            # Вказуємо шлях до створеного файлу з кукі
+            'cookiefile': cookie_file_path if len(cookies_content) > 10 else None,
             'extractor_args': {
                 'youtube': {
-                    # 2. Заміна клієнта на tv_embedded для стабільності без cookies
-                    'player_client': ['tv_embedded']
+                    'player_client': ['tv_embedded', 'ios']
                 }
             },
         }
+        
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([video_url])
+        
         return f"{temp_filename}.mp3"
 
     try:
         loop = asyncio.get_event_loop()
         downloaded_file = await loop.run_in_executor(None, ytdl_download)
         
-        if os.path.exists(downloaded_file):
+        if downloaded_file and os.path.exists(downloaded_file):
             if os.path.exists(final_file):
                 os.remove(final_file)
             os.rename(downloaded_file, final_file)
+            # Видаляємо тимчасовий файл кукі після використання
+            if os.path.exists(cookie_file_path):
+                os.remove(cookie_file_path)
             return final_file
         return None
         
     except Exception as e:
-        logging.error(f"Помилка при завантаженні через tv_embedded: {e}")
+        logging.error(f"Помилка завантаження: {e}")
+        if os.path.exists(cookie_file_path):
+            os.remove(cookie_file_path)
         return None
         
 # 5. Клавіатура (логіка залишена без змін)
