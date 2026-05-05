@@ -3,6 +3,7 @@ import asyncio
 import re
 import logging
 import yt_dlp
+import html
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
@@ -11,15 +12,10 @@ from googleapiclient.discovery import build
 # 1. Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
-# 2. Отримання змінних оточення (Безпечний метод)
-# Програма шукає змінні в системі. Якщо не знаходить — видасть помилку.
+# 2. Змінні конфігурації
 TOKEN = os.getenv("BOT_TOKEN")
+# Встав сюди свій API ключ, який ми створили раніше
 YT_API_KEY = os.getenv("YT_API_KEY")
-
-if not TOKEN or not YT_API_KEY:
-    logging.error("Помилка: Змінні BOT_TOKEN або YT_API_KEY не знайдені!")
-    # Якщо ти запускаєш локально і забув налаштувати змінні, можна закоментувати 
-    # рядки вище і тимчасово вписати їх сюди, але НЕ відправляй це на GitHub!
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -27,43 +23,68 @@ dp = Dispatcher()
 search_cache = {}
 ITEMS_PER_PAGE = 8
 
-# 
+def clean_display_name(text):
+    """Очищає назву від HTML-символів та сміття"""
+    # Перетворюємо &quot; на лапки та інші символи
+    text = html.unescape(text)
+    # Видаляємо текст у дужках
+    text = re.sub(r'[\(\[][^\\\)\(\]]*[\)\]]', '', text)
+    # Список слів-паразитів
+    garbage = ["official", "video", "audio", "lyrics", "remastered", "music", "премьера", "новинка"]
+    for word in garbage:
+        text = re.compile(re.escape(word), re.IGNORECASE).sub('', text)
+    return re.sub(r'\s+', ' ', text).strip().strip('-').strip()
 
 # 3. Функція пошуку через YouTube Data API v3
 def search_youtube_api(query):
-    """Шукає відео через офіційне API"""
+    """Покращений пошук для знаходження конкретних треків"""
     try:
         youtube = build('youtube', 'v3', developerKey=YT_API_KEY)
-        full_query = f"{query} official music"
+        
+        # Додаємо "full track audio" для максимальної точності
+        full_query = f"{query} full track audio"
         
         request = youtube.search().list(
             q=full_query,
             part='snippet',
             type='video',
-            maxResults=20
+            videoCategoryId='10',
+            videoDuration='medium',
+            maxResults=10  # Менше результатів, але точніші
         )
         response = request.execute()
         
         results = []
         for item in response.get('items', []):
+            snippet = item['snippet']
+            # Очищуємо назву від &quot; та іншого
+            clean_title = clean_display_name(snippet['title'])
+            author = snippet['channelTitle'].replace(" - Topic", "")
+            
+            display_name = f"{clean_title} • {author}"
+            
             results.append({
-                'title': item['snippet']['title'],
+                'title': display_name[:50], 
                 'url': f"https://www.youtube.com/watch?v={item['id']['videoId']}"
             })
         return results
     except Exception as e:
+        import logging
         logging.error(f"YouTube API Error: {e}")
         return []
 
-# 4. Функція завантаження (залишається без змін)
+# 4. Функція завантаження
 async def download_song(video_url, title):
+    # Очищення назви для файлової системи
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
-    file_path = f"{safe_title}.mp3"
+    # Важливо: використовуємо унікальне ім'я для завантаження
+    temp_filename = f"track_{hash(video_url)}" 
+    final_file = f"{safe_title}.mp3"
     
     def ytdl_download():
         opts = {
             'format': 'bestaudio/best',
-            'outtmpl': safe_title,
+            'outtmpl': temp_filename, # Тимчасова назва без розширення
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -71,15 +92,36 @@ async def download_song(video_url, title):
             }],
             'quiet': True,
             'nocheckcertificate': True,
+            # Використовуємо клієнтів, які не потребують PO Token зараз
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'web_embedded'],
+                }
+            },
+            # Додаткові налаштування для стабільності
+            'socket_timeout': 30,
+            'retries': 3,
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([video_url])
-        return f"{safe_title}.mp3"
+        return f"{temp_filename}.mp3"
 
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, ytdl_download)
+    try:
+        loop = asyncio.get_event_loop()
+        downloaded_file = await loop.run_in_executor(None, ytdl_download)
+        
+        # Перейменовуємо файл у красиву назву перед відправкою
+        if os.path.exists(downloaded_file):
+            if os.path.exists(final_file):
+                os.remove(final_file) # Видаляємо старий, якщо є
+            os.rename(downloaded_file, final_file)
+            return final_file
+        return None
+    except Exception as e:
+        logging.error(f"Критична помилка yt-dlp: {e}")
+        return None
 
-# 5. Клавіатура
+# 5. Клавіатура (логіка залишена без змін)
 def get_keyboard(user_id, page=0):
     results = search_cache.get(user_id, [])
     start = page * ITEMS_PER_PAGE
@@ -102,7 +144,7 @@ def get_keyboard(user_id, page=0):
     buttons.append(nav)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# 6. Обробники (Русифікований інтерфейс)
+# 6. Обробники (Handler)
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     await message.answer("Напиши название песни, а я ее найду 🎧")
@@ -110,6 +152,8 @@ async def cmd_start(message: types.Message):
 @dp.message(F.text)
 async def handle_search(message: types.Message):
     status = await message.answer("🔎 Ищу лучшую версию для тебя...")
+    
+    # Використовуємо нову функцію пошуку
     loop = asyncio.get_event_loop()
     results = await loop.run_in_executor(None, search_youtube_api, message.text)
             
@@ -141,15 +185,19 @@ async def process_dl(callback: types.CallbackQuery):
     
     try:
         file_path = await download_song(track['url'], track['title'])
+        
         if os.path.exists(file_path):
-            await callback.message.answer_audio(audio=FSInputFile(file_path), title=track['title'])
+            await callback.message.answer_audio(
+                audio=FSInputFile(file_path), 
+                title=track['title']
+            )
             await wait_msg.delete()
             os.remove(file_path)
         else:
-            await wait_msg.edit_text("❌ Ошибка: файл не создан.")
+            await wait_msg.edit_text("❌ Ошибка: файл не создался.")
     except Exception as e:
         logging.error(f"Download error: {e}")
-        await wait_msg.edit_text("❌ Ошибка при загрузке.")
+        await wait_msg.edit_text("❌ Ошибка при загрузке или конвертации.")
 
 async def main():
     await dp.start_polling(bot)
