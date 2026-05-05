@@ -75,21 +75,17 @@ def search_youtube_api(query):
 
 # 4. Функція завантаження
 async def download_song(video_url, title):
+    """
+    Завантажує аудіо, використовуючи tv_embedded клієнт та розширений пошук форматів.
+    """
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
-    temp_filename = f"track_{abs(hash(video_url))}"
+    temp_filename = f"track_{hash(video_url)}" 
     final_file = f"{safe_title}.mp3"
-
+    
     def ytdl_download():
-        cookies_content = os.getenv("YT_COOKIES", "")
-        cookies_file = None
-
-        if cookies_content:
-            cookies_file = "/tmp/yt_cookies.txt"
-            with open(cookies_file, "w") as f:
-                f.write(cookies_content)
-
         opts = {
-            'format': 'bestaudio/best',
+            # 1. Покращений вибір формату: пріоритет на m4a для кращої конвертації
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
             'outtmpl': temp_filename,
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
@@ -98,18 +94,17 @@ async def download_song(video_url, title):
             }],
             'quiet': True,
             'nocheckcertificate': True,
+            'sleep_interval': 1,
+            'max_sleep_interval': 3,
             'socket_timeout': 30,
             'retries': 3,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android_vr']
+                    # 2. Заміна клієнта на tv_embedded для стабільності без cookies
+                    'player_client': ['tv_embedded']
                 }
             },
         }
-
-        if cookies_file:
-            opts['cookiefile'] = cookies_file
-
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([video_url])
         return f"{temp_filename}.mp3"
@@ -117,15 +112,16 @@ async def download_song(video_url, title):
     try:
         loop = asyncio.get_event_loop()
         downloaded_file = await loop.run_in_executor(None, ytdl_download)
-
+        
         if os.path.exists(downloaded_file):
             if os.path.exists(final_file):
                 os.remove(final_file)
             os.rename(downloaded_file, final_file)
             return final_file
         return None
+        
     except Exception as e:
-        logging.error(f"Критична помилка завантаження: {e}")
+        logging.error(f"Помилка при завантаженні через tv_embedded: {e}")
         return None
         
 # 5. Клавіатура (логіка залишена без змін)
