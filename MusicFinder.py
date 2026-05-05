@@ -15,26 +15,24 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 search_cache = {}
+last_requests = {}  # ✅ анти-дубль
 ITEMS_PER_PAGE = 8
 
-# 🔍 ПОШУК (обхід блоків)
+# 🔍 ПОШУК
 def get_search_opts():
     return {
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'web']
             }
         },
-
         'http_headers': {
             'User-Agent': 'Mozilla/5.0'
         },
-
         'match_filter': yt_dlp.utils.match_filter_func(
             "duration > 60 & view_count > 1000 & !is_live"
         ),
@@ -48,7 +46,7 @@ async def download_song(video_url, title):
     video_id = video_url.split("v=")[-1]
     api_url = f"https://api.vevioz.com/api/button/mp3/{video_id}"
 
-    # --- 1. СПРОБА ЧЕРЕЗ API ---
+    # --- API ---
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as resp:
@@ -68,23 +66,20 @@ async def download_song(video_url, title):
     except Exception as e:
         logging.error(f"API error: {e}")
 
-    # --- 2. FALLBACK через yt-dlp ---
+    # --- FALLBACK ---
     def ytdl_fallback():
         opts = {
             'format': 'bestaudio/best',
-            'outtmpl': safe_title,
+            'outtmpl': f"{safe_title}.%(ext)s",  # ✅ FIX
             'quiet': True,
-
             'extractor_args': {
                 'youtube': {
                     'player_client': ['android', 'web']
                 }
             },
-
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0'
             },
-
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -95,7 +90,7 @@ async def download_song(video_url, title):
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([video_url])
 
-        return file_path
+        return f"{safe_title}.mp3"  # ✅ FIX
 
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, ytdl_fallback)
@@ -125,11 +120,19 @@ def get_keyboard(user_id, page=0):
 # ▶️ СТАРТ
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer("Напиши название песни, а я ее найду 🎧")
+    await message.answer("Напиши название песни 🎧")
 
 # 🔎 ПОШУК
 @dp.message(F.text)
 async def handle_search(message: types.Message):
+    user_id = message.from_user.id
+    text = message.text.strip().lower()
+
+    # ✅ анти-дубль
+    if last_requests.get(user_id) == text:
+        return
+    last_requests[user_id] = text
+
     status = await message.answer("🔎 Ищу...")
 
     try:
@@ -146,25 +149,30 @@ async def handle_search(message: types.Message):
             await status.edit_text("❌ Ничего не найдено")
             return
 
-        search_cache[message.from_user.id] = results
+        search_cache[user_id] = results
         await status.delete()
 
         await message.answer(
             f"По запросу: {message.text}",
-            reply_markup=get_keyboard(message.from_user.id, 0)
+            reply_markup=get_keyboard(user_id, 0)
         )
 
     except Exception as e:
         logging.error(f"Search error: {e}")
         await status.edit_text("❌ Ошибка поиска")
 
-# 🔄 ПЕРЕКЛЮЧЕННЯ СТОРІНОК
+# 🔄 СТОРІНКИ
 @dp.callback_query(F.data.startswith("pg_"))
 async def change_page(callback: types.CallbackQuery):
     page = int(callback.data.split("_")[1])
-    await callback.message.edit_reply_markup(
-        reply_markup=get_keyboard(callback.from_user.id, page)
-    )
+
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=get_keyboard(callback.from_user.id, page)
+        )
+    except:
+        pass  # ✅ FIX
+
     await callback.answer()
 
 # ⬇️ ЗАВАНТАЖЕННЯ
@@ -174,7 +182,7 @@ async def process_dl(callback: types.CallbackQuery):
     results = search_cache.get(callback.from_user.id)
 
     if not results:
-        await callback.answer("Результаты устарели")
+        await callback.answer("Устарело")
         return
 
     track = results[idx]
