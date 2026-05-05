@@ -15,10 +15,10 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 search_cache = {}
-last_requests = {}  # ✅ анти-дубль
+last_requests = {}  # Анти-дубль
 ITEMS_PER_PAGE = 8
 
-# 🔍 ПОШУК
+# 🔍 НАЛАШТУВАННЯ ПОШУКУ
 def get_search_opts():
     return {
         'format': 'bestaudio/best',
@@ -27,15 +27,13 @@ def get_search_opts():
         'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web']
+                # Спробуємо 'ios' клієнт, він зараз найбільш живучий без кукі
+                'player_client': ['ios', 'android'],
             }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0'
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1'
         },
-        'match_filter': yt_dlp.utils.match_filter_func(
-            "duration > 60 & view_count > 1000 & !is_live"
-        ),
     }
 
 # 🎧 ЗАВАНТАЖЕННЯ
@@ -43,42 +41,15 @@ async def download_song(video_url, title):
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
     file_path = f"{safe_title}.mp3"
 
-    video_id = video_url.split("v=")[-1]
-    api_url = f"https://api.vevioz.com/api/button/mp3/{video_id}"
-
-    # --- API ---
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url) as resp:
-                text = await resp.text()
-
-        match = re.search(r'href="(https:[^"]+\.mp3)"', text)
-
-        if match:
-            download_url = match.group(1)
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(download_url) as resp:
-                    with open(file_path, "wb") as f:
-                        f.write(await resp.read())
-
-            return file_path
-    except Exception as e:
-        logging.error(f"API error: {e}")
-
-    # --- FALLBACK ---
     def ytdl_fallback():
         opts = {
             'format': 'bestaudio/best',
-            'outtmpl': f"{safe_title}.%(ext)s",  # ✅ FIX
+            'outtmpl': f"{safe_title}.%(ext)s", # Правильне розширення
             'quiet': True,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'web']
+                    'player_client': ['ios', 'android']
                 }
-            },
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0'
             },
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
@@ -90,7 +61,7 @@ async def download_song(video_url, title):
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([video_url])
 
-        return f"{safe_title}.mp3"  # ✅ FIX
+        return file_path
 
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, ytdl_fallback)
@@ -120,7 +91,7 @@ def get_keyboard(user_id, page=0):
 # ▶️ СТАРТ
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer("Напиши название песни 🎧")
+    await message.answer("Напиши название песни, которую хочеш найти 🎧")
 
 # 🔎 ПОШУК
 @dp.message(F.text)
@@ -128,7 +99,6 @@ async def handle_search(message: types.Message):
     user_id = message.from_user.id
     text = message.text.strip().lower()
 
-    # ✅ анти-дубль
     if last_requests.get(user_id) == text:
         return
     last_requests[user_id] = text
@@ -139,11 +109,7 @@ async def handle_search(message: types.Message):
         with yt_dlp.YoutubeDL(get_search_opts()) as ydl:
             search_query = f"ytsearch10:{message.text} audio"
             info = ydl.extract_info(search_query, download=False)
-
-            results = [
-                entry for entry in info.get('entries', [])
-                if entry and not entry.get('is_live')
-            ]
+            results = [e for e in info.get('entries', []) if e]
 
         if not results:
             await status.edit_text("❌ Ничего не найдено")
@@ -151,28 +117,20 @@ async def handle_search(message: types.Message):
 
         search_cache[user_id] = results
         await status.delete()
-
-        await message.answer(
-            f"По запросу: {message.text}",
-            reply_markup=get_keyboard(user_id, 0)
-        )
+        await message.answer(f"По запросу: {message.text}", reply_markup=get_keyboard(user_id, 0))
 
     except Exception as e:
         logging.error(f"Search error: {e}")
-        await status.edit_text("❌ Ошибка поиска")
+        await status.edit_text("❌ Ошибка поиска. Может быть, YouTube блокирует запрос.")
 
 # 🔄 СТОРІНКИ
 @dp.callback_query(F.data.startswith("pg_"))
 async def change_page(callback: types.CallbackQuery):
     page = int(callback.data.split("_")[1])
-
     try:
-        await callback.message.edit_reply_markup(
-            reply_markup=get_keyboard(callback.from_user.id, page)
-        )
+        await callback.message.edit_reply_markup(reply_markup=get_keyboard(callback.from_user.id, page))
     except:
-        pass  # ✅ FIX
-
+        pass # Якщо повідомлення не змінилося, просто ігноруємо
     await callback.answer()
 
 # ⬇️ ЗАВАНТАЖЕННЯ
@@ -182,30 +140,26 @@ async def process_dl(callback: types.CallbackQuery):
     results = search_cache.get(callback.from_user.id)
 
     if not results:
-        await callback.answer("Устарело")
+        await callback.answer("Данные устарели")
         return
 
     track = results[idx]
-    wait_msg = await callback.message.answer("⏳ Загружаю...")
+    wait_msg = await callback.message.answer("⏳")
 
     try:
         file_path = await download_song(track['webpage_url'], track['title'])
 
         if os.path.exists(file_path):
-            await callback.message.answer_audio(
-                audio=FSInputFile(file_path),
-                title=track['title']
-            )
+            audio = FSInputFile(file_path)
+            await callback.message.answer_audio(audio=audio, title=track['title'])
             await wait_msg.delete()
             os.remove(file_path)
         else:
-            await wait_msg.edit_text("❌ Файл не найден")
-
+            await wait_msg.edit_text("❌ Ошибка: файл не создан")
     except Exception as e:
         logging.error(f"Download error: {e}")
-        await wait_msg.edit_text("❌ Ошибка загрузки")
+        await wait_msg.edit_text("❌ Ошибка загрузки. Попробуйте другую песню.")
 
-# 🚀 ЗАПУСК
 async def main():
     await dp.start_polling(bot)
 
