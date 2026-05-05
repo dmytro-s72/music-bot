@@ -33,25 +33,37 @@ def clean_display_name(text):
 
 # 3. Функція пошуку через YouTube Data API v3
 def search_youtube_api(query):
-    """Пошук через YouTube API"""
+    """
+    Покращений пошук для знаходження оригінальних треків без зайвих реміксів.
+    """
     try:
+        # Створюємо об'єкт клієнта YouTube API
         youtube = build('youtube', 'v3', developerKey=YT_API_KEY)
-        full_query = f"{query} full track audio"
+        
+        # 1. Змінюємо приписку на "official audio" для кращої точності
+        full_query = f"{query} official audio"
         
         request = youtube.search().list(
             q=full_query,
             part='snippet',
             type='video',
-            videoCategoryId='10',
-            videoDuration='medium',
-            maxResults=10
+            videoCategoryId='10', # Категорія "Музика"
+            maxResults=10,
+            # Додаємо параметр order='relevance', щоб отримати найбільш відповідні результати
+            order='relevance'
         )
         response = request.execute()
         
         results = []
         for item in response.get('items', []):
             snippet = item['snippet']
-            clean_title = clean_display_name(snippet['title'])
+            original_title = snippet['title']
+            
+            # 2. Фільтрація: якщо ти не шукав "phonk", а він є в назві — пропускаємо цей варіант
+            if 'phonk' in original_title.lower() and 'phonk' not in query.lower():
+                continue
+                
+            clean_title = clean_display_name(original_title)
             author = snippet['channelTitle'].replace(" - Topic", "")
             display_name = f"{clean_title} • {author}"
             
@@ -59,6 +71,7 @@ def search_youtube_api(query):
                 'title': display_name[:50], 
                 'url': f"https://www.youtube.com/watch?v={item['id']['videoId']}"
             })
+            
         return results
     except Exception as e:
         logging.error(f"YouTube API Error: {e}")
