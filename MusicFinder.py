@@ -22,28 +22,33 @@ ITEMS_PER_PAGE = 8
 
 # 🔍 НАЛАШТУВАННЯ ПОШУКУ (Оновлено для обходу блокувань)
 def get_search_opts():
-    # Шлях до файлу cookies, який вже є у твоєму репозиторії
-    cookie_path = 'cookies.txt' if os.path.exists('cookies.txt') else None
+    # Railway зберігає файли в папці /app/
+    cookie_path = 'cookies.txt'
     
+    # Перевіряємо, чи файл реально існує в репозиторії
+    if not os.path.exists(cookie_path):
+        print(f"ПОМИЛКА: Файл {cookie_path} не знайдено!")
+        return None
+
     return {
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        'cookiefile': cookie_path, # Використовуємо твій файл куків
-        'source_address': '0.0.0.0', 
+        'cookiefile': cookie_path,  # Використовуємо твої куки зі США
+        'source_address': '0.0.0.0', # Примусово IPv4 для стабільності в US West
         'extractor_args': {
             'youtube': {
-                'player_client': ['android'], # Лишаємо тільки найнадійніший клієнт
-                'skip': ['webpage', 'hls', 'dash'],
+                # Клієнт 'mweb' найкраще працює з куками на серверах
+                'player_client': ['mweb', 'android'],
+                'skip': ['webpage', 'configs'],
             }
         },
         'http_headers': {
-            'User-Agent': 'com.google.android.youtube/19.16.38 (Linux; U; Android 14; en_US) gzip',
-            'Accept': '*/*',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1',
+            'Accept-Language': 'en-US,en;q=0.9',
         },
     }
-
 
 # 🎧 ФУНКЦІЯ ЗАВАНТАЖЕННЯ
 async def download_song(video_url, title):
