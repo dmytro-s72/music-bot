@@ -6,6 +6,6 @@
   },
   "deploy": {
     "aptPackages": ["ffmpeg"],
-    "startCommand": "python3 MusicFinder.py"
+    "startCommand": "python3 fix_cookies.py && python3 MusicFinder.py"
   }
 }
