@@ -7,39 +7,32 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 
-# Налаштування логування
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Отримання токену з перемінних оточення
+# Получение токена
 TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Сховище для результатів пошуку та анти-спаму
+# Хранилище
 search_cache = {}
 last_requests = {} 
 ITEMS_PER_PAGE = 8
 
-# 🔍 НАЛАШТУВАННЯ ПОШУКУ (Оновлено для обходу блокувань)
-def get_search_opts():
-    # Railway зберігає файли в папці /app/
+# 🔍 ЕДИНЫЕ НАСТРОЙКИ (Для поиска и загрузки)
+def get_ytdl_opts(for_download=False, out_name=None):
     cookie_path = 'cookies.txt'
     
-    # Перевіряємо, чи файл реально існує в репозиторії
-    if not os.path.exists(cookie_path):
-        print(f"ПОМИЛКА: Файл {cookie_path} не знайдено!")
-        return None
-
-    return {
+    opts = {
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        'cookiefile': cookie_path,  # Використовуємо твої куки зі США
-        'source_address': '0.0.0.0', # Примусово IPv4 для стабільності в US West
+        'cookiefile': cookie_path if os.path.exists(cookie_path) else None,
+        'source_address': '0.0.0.0',
         'extractor_args': {
             'youtube': {
-                # Клієнт 'mweb' найкраще працює з куками на серверах
                 'player_client': ['mweb', 'android'],
                 'skip': ['webpage', 'configs'],
             }
@@ -50,35 +43,35 @@ def get_search_opts():
         },
     }
 
-# 🎧 ФУНКЦІЯ ЗАВАНТАЖЕННЯ
-async def download_song(video_url, title):
-    # Очищення назви від заборонених символів
-    safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
-    file_path = f"{safe_title}.mp3"
-
-    def ytdl_fallback():
-        opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': f"{safe_title}.%(ext)s",
-            'quiet': True,
+    if for_download:
+        opts.update({
+            'outtmpl': f"{out_name}.%(ext)s",
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '192'
             }],
-        }
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        })
+    return opts
+
+# 🎧 ФУНКЦИЯ ЗАГРУЗКИ (Исправлено)
+async def download_song(video_url, title):
+    safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
+    file_path = f"{safe_title}.mp3"
+
+    def ytdl_run():
+        # Используем те же куки, что и в поиске!
+        with yt_dlp.YoutubeDL(get_ytdl_opts(for_download=True, out_name=safe_title)) as ydl:
             ydl.download([video_url])
         return file_path
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, ytdl_fallback)
+    return await loop.run_in_executor(None, ytdl_run)
 
-# 🎛 ГЕНЕРАЦІЯ КЛАВІАТУРИ
+# 🎛 ГЕНЕРАЦИЯ КЛАВИАТУРЫ
 def get_keyboard(user_id, page=0):
     data = search_cache.get(user_id, {})
     results = data.get('items', [])
-    
     start = page * ITEMS_PER_PAGE
     end = start + ITEMS_PER_PAGE
     current_items = results[start:end]
@@ -102,7 +95,7 @@ def get_keyboard(user_id, page=0):
 async def cmd_start(message: types.Message):
     await message.answer("Привет! Напиши название песни, а я её найду 🎧")
 
-# 🔎 ОБРОБКА ПОШУКУ
+# 🔎 ОБРАБОТКА ПОИСКА
 @dp.message(F.text)
 async def handle_search(message: types.Message):
     user_id = message.from_user.id
@@ -115,7 +108,8 @@ async def handle_search(message: types.Message):
     status = await message.answer("🔎 Ищу...")
 
     try:
-        with yt_dlp.YoutubeDL(get_search_opts()) as ydl:
+        # Используем единые настройки с куками
+        with yt_dlp.YoutubeDL(get_ytdl_opts()) as ydl:
             search_query = f"ytsearch10:{message.text} audio"
             info = ydl.extract_info(search_query, download=False)
             results = [e for e in info.get('entries', []) if e and not e.get('is_live')]
@@ -126,19 +120,17 @@ async def handle_search(message: types.Message):
             return
 
         search_cache[user_id] = {'items': results}
-        
         await status.delete()
         await message.answer(
             f"Результаты по запросу: {message.text}",
             reply_markup=get_keyboard(user_id, 0)
         )
-
     except Exception as e:
         logging.error(f"Search error: {e}")
         await status.edit_text("❌ Ошибка поиска. Попробуйте позже.")
         last_requests[user_id] = None
 
-# 🔄 ПЕРЕМИКАННЯ СТОРІНОК
+# 🔄 ПЕРЕКЛЮЧЕНИЕ СТРАНИЦ
 @dp.callback_query(F.data.startswith("pg_"))
 async def change_page(callback: types.CallbackQuery):
     page = int(callback.data.split("_")[1])
@@ -150,7 +142,7 @@ async def change_page(callback: types.CallbackQuery):
         pass 
     await callback.answer()
 
-# ⬇️ ЗАВАНТАЖЕННЯ ТА ВІДПРАВКА
+# ⬇️ ЗАГРУЗКА И ОТПРАВКА
 @dp.callback_query(F.data.startswith("dl_"))
 async def process_dl(callback: types.CallbackQuery):
     idx = int(callback.data.split("_")[1])
@@ -178,15 +170,13 @@ async def process_dl(callback: types.CallbackQuery):
         logging.error(f"Download error: {e}")
         await wait_msg.edit_text("❌ Ошибка при загрузке аудио")
 
-# 🚀 ЗАПУСК БОТА
+# 🚀 ЗАПУСК
 async def main():
-    # Видаляємо конфлікти з'єднань та Webhook
     await bot.delete_webhook(drop_pending_updates=True)
-    # Починаємо отримання повідомлень
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logging.info("Бот зупинений")
+        logging.info("Бот остановлен")
