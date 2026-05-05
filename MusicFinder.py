@@ -4,6 +4,7 @@ import re
 import logging
 import yt_dlp
 import json
+import time
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
@@ -21,12 +22,16 @@ search_cache = {}
 last_requests = {} 
 ITEMS_PER_PAGE = 8
 
+# 🛠 ФУНКЦІЯ КОНВЕРТАЦІЇ (Працює автоматично)
 def convert_json_to_netscape():
     json_path = 'cookies.json'
     txt_path = 'cookies.txt'
     
     if not os.path.exists(json_path):
-        logging.error("❌ Файл cookies.json не знайдено для конвертації!")
+        if os.path.exists(txt_path):
+            logging.info("✅ cookies.txt вже готовий, JSON не потрібен.")
+            return
+        logging.error("❌ Файлів куків не знайдено!")
         return
 
     try:
@@ -34,43 +39,42 @@ def convert_json_to_netscape():
             cookies = json.load(f)
         
         with open(txt_path, 'w', encoding='utf-8') as f:
-            # Записуємо обов'язковий заголовок Netscape
             f.write("# Netscape HTTP Cookie File\n")
-            f.write("# http://curl.haxx.se/rfc/cookie_spec.html\n")
-            f.write("# This is a generated file! Do not edit.\n\n")
+            f.write("# http://curl.haxx.se/rfc/cookie_spec.html\n\n")
             
             for c in cookies:
-                # Визначаємо значення для формату Netscape
                 domain = c.get('domain', '')
-                # Прапор домену: TRUE якщо починається з крапки
                 flag = "TRUE" if domain.startswith('.') else "FALSE"
                 path = c.get('path', '/')
                 secure = "TRUE" if c.get('secure') else "FALSE"
-                # Час життя (expiry)
-                expiry = int(c.get('expirationDate', 0))
+                expiry = int(c.get('expirationDate', 2147483647))
                 name = c.get('name', '')
                 value = c.get('value', '')
                 
-                # Записуємо рядок, розділений табуляцією \t
-                f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n")
+                line = f"{domain}\t{flag}\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n"
+                f.write(line)
         
-        logging.info("✅ cookies.txt успішно згенеровано з JSON!")
+        logging.info("✅ cookies.txt створено успішно.")
+        # Видаляємо JSON, щоб yt-dlp не намагався його використати помилково
+        os.remove(json_path) 
+        time.sleep(1) 
+        
     except Exception as e:
-        logging.error(f"❌ Помилка конвертації куків: {e}")
+        logging.error(f"❌ Помилка конвертації: {e}")
 
-# Викликаємо конвертацію перед запуском бота
+# Викликаємо конвертацію ПЕРЕД стартом
 convert_json_to_netscape()
-# 🔍 ЕДИНЫЕ НАСТРОЙКИ (Для поиска и загрузки)
+
+# 🔍 НАЛАШТУВАННЯ YT-DLP (ВИПРАВЛЕНО)
 def get_ytdl_opts(for_download=False, out_name=None):
-    # ЗМІНЕНО: тепер вказуємо шлях до JSON файлу
-    cookie_path = 'cookies.json'
+    # ТУТ МАЄ БУТИ ТІЛЬКИ .txt!
+    cookie_path = 'cookies.txt' 
     
     opts = {
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        # ЗМІНЕНО: додаємо перевірку наявності саме JSON
         'cookiefile': cookie_path if os.path.exists(cookie_path) else None,
         'source_address': '0.0.0.0',
         'extractor_args': {
@@ -96,7 +100,7 @@ def get_ytdl_opts(for_download=False, out_name=None):
         })
     return opts
 
-# 🎧 ФУНКЦИЯ ЗАГРУЗКИ (Залишається без змін, бо вона викликає get_ytdl_opts)
+# 🎧 ФУНКЦІЯ ЗАГРУЗКИ
 async def download_song(video_url, title):
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
     file_path = f"{safe_title}.mp3"
@@ -109,24 +113,7 @@ async def download_song(video_url, title):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, ytdl_run)
 
-# 🛠 ВИПРАВЛЕНА ПЕРЕВІРКА КУКІВ (Для JSON формату)
-def verify_cookie_format():
-    if os.path.exists('cookies.json'):
-        try:
-            with open('cookies.json', 'r', encoding='utf-8') as f:
-                # Перевіряємо, чи це валідний JSON
-                json.load(f) 
-            logging.info("✅ Файл cookies.json знайдено та успішно прочитано")
-        except Exception as e:
-            logging.error(f"❌ Помилка у форматі cookies.json: {e}")
-    else:
-        logging.error("❌ Файл cookies.json відсутній у корені проєкту!")
-
-# Не забудь імпортувати json на початку файлу!
-import json 
-verify_cookie_format()
-
-# 🎛 ГЕНЕРАЦИЯ КЛАВИАТУРЫ
+# 🎛 ГЕНЕРАЦІЯ КЛАВІАТУРИ
 def get_keyboard(user_id, page=0):
     data = search_cache.get(user_id, {})
     results = data.get('items', [])
@@ -153,7 +140,7 @@ def get_keyboard(user_id, page=0):
 async def cmd_start(message: types.Message):
     await message.answer("Привет! Напиши название песни, а я её найду 🎧")
 
-# 🔎 ОБРАБОТКА ПОИСКА
+# 🔎 ОБРОБКА ПОШУКУ
 @dp.message(F.text)
 async def handle_search(message: types.Message):
     user_id = message.from_user.id
@@ -166,7 +153,6 @@ async def handle_search(message: types.Message):
     status = await message.answer("🔎 Ищу...")
 
     try:
-        # Используем единые настройки с куками
         with yt_dlp.YoutubeDL(get_ytdl_opts()) as ydl:
             search_query = f"ytsearch10:{message.text} audio"
             info = ydl.extract_info(search_query, download=False)
@@ -188,7 +174,7 @@ async def handle_search(message: types.Message):
         await status.edit_text("❌ Ошибка поиска. Попробуйте позже.")
         last_requests[user_id] = None
 
-# 🔄 ПЕРЕКЛЮЧЕНИЕ СТРАНИЦ
+# 🔄 ПЕРЕМИКАННЯ СТОРІНОК
 @dp.callback_query(F.data.startswith("pg_"))
 async def change_page(callback: types.CallbackQuery):
     page = int(callback.data.split("_")[1])
@@ -200,7 +186,7 @@ async def change_page(callback: types.CallbackQuery):
         pass 
     await callback.answer()
 
-# ⬇️ ЗАГРУЗКА И ОТПРАВКА
+# ⬇️ ЗАВАНТАЖЕННЯ ТА ВІДПРАВКА
 @dp.callback_query(F.data.startswith("dl_"))
 async def process_dl(callback: types.CallbackQuery):
     idx = int(callback.data.split("_")[1])
