@@ -9,10 +9,9 @@ from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from googleapiclient.discovery import build
 
-# 1. Настройка логирования
+
 logging.basicConfig(level=logging.INFO)
 
-# 2. Переменные конфигурации (из Railway Variables)
 TOKEN = os.getenv("BOT_TOKEN")
 YT_API_KEY = os.getenv("YT_API_KEY")
 
@@ -23,7 +22,6 @@ search_cache = {}
 ITEMS_PER_PAGE = 8
 
 def clean_display_name(text):
-    """Очистка названия от технического мусора"""
     text = html.unescape(text)
     text = re.sub(r'[\(\[][^\\\)\(\]]*[\)\]]', '', text)
     garbage = ["official", "video", "audio", "lyrics", "remastered", "music", "премьера", "новинка"]
@@ -31,12 +29,10 @@ def clean_display_name(text):
         text = re.compile(re.escape(word), re.IGNORECASE).sub('', text)
     return re.sub(r'\s+', ' ', text).strip().strip('-').strip()
 
-# 3. Функция поиска через YouTube API
 def search_youtube_api(query):
     """Поиск оригинальных треков"""
     try:
         youtube = build('youtube', 'v3', developerKey=YT_API_KEY)
-        # Добавляем "official audio" для точности
         full_query = f"{query} official audio"
         
         request = youtube.search().list(
@@ -53,7 +49,6 @@ def search_youtube_api(query):
             snippet = item['snippet']
             title = snippet['title']
             
-            # Фильтруем Phonk, если его не просили
             if 'phonk' in title.lower() and 'phonk' not in query.lower():
                 continue
                 
@@ -70,7 +65,6 @@ def search_youtube_api(query):
         logging.error(f"YouTube API Error: {e}")
         return []
 
-# 4. Функция скачивания (ИСПРАВЛЕНЫ ОТСТУПЫ)
 async def download_song(video_url, title):
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
     temp_filename = f"track_{hash(video_url)}" 
@@ -79,9 +73,7 @@ async def download_song(video_url, title):
     cookies_content = os.getenv("YT_COOKIES", "")
     cookie_file_path = "temp_cookies.txt"
 
-    # Внутренняя функция для yt-dlp
     def ytdl_download():
-        # Отступ 8 пробелов (внутри функции)
         if len(cookies_content) > 10:
             with open(cookie_file_path, "w", encoding="utf-8") as f:
                 f.write(cookies_content)
@@ -123,7 +115,6 @@ async def download_song(video_url, title):
         logging.error(f"Ошибка загрузки: {e}")
         return None
 
-# 5. Клавиатура (Интерфейс на русском)
 def get_keyboard(user_id, page=0):
     results = search_cache.get(user_id, [])
     start = page * ITEMS_PER_PAGE
@@ -146,7 +137,6 @@ def get_keyboard(user_id, page=0):
     buttons.append(nav)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# 6. Обработчики событий (Интерфейс на русском)
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     await message.answer("Привет! Напиши название песни, и я её найду 🎧")
